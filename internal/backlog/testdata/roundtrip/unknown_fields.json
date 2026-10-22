@@ -1,0 +1,74 @@
+{
+  "main": {
+    "_custom_prefix": "ns",
+    "metadata": {
+      "_generated_by": "test-script",
+      "_version_info": {
+        "build": 123,
+        "semver": "1.0.0"
+      },
+      "completedCount": 1,
+      "lastModified": "2025-05-10T09:00:00Z",
+      "tags": [
+        "main"
+      ],
+      "taskCount": 3,
+      "version": "1.0.0"
+    },
+    "tasks": [
+      {
+        "_legacy_flag": true,
+        "_x_meta": {
+          "id": 42,
+          "source": "import"
+        },
+        "dependencies": [],
+        "description": "Has extra fields at task level",
+        "details": "",
+        "id": "1",
+        "priority": "high",
+        "status": "pending",
+        "subtasks": [
+          {
+            "_custom_field": "extra data here",
+            "dependencies": [],
+            "description": "",
+            "details": "",
+            "id": 1,
+            "parentTaskId": "1",
+            "status": "pending",
+            "title": "Subtask 1"
+          }
+        ],
+        "title": "Task with unknown fields",
+        "updatedAt": "2025-05-10T08:00:00Z"
+      },
+      {
+        "dependencies": [
+          "1"
+        ],
+        "description": "No extra fields",
+        "details": "<info added 2025-05-10T08:05:00Z>\nDetails with <angle brackets> & ampersands survive round-trip.\n</info>",
+        "id": "2",
+        "priority": "medium",
+        "status": "done",
+        "subtasks": [],
+        "title": "Normal task",
+        "updatedAt": "2025-05-10T08:01:00Z"
+      },
+      {
+        "_color": "blue",
+        "_points": 5,
+        "dependencies": [],
+        "description": "Has extra at both levels",
+        "details": "",
+        "id": "3",
+        "priority": "low",
+        "status": "in-progress",
+        "subtasks": [],
+        "title": "Another task with extras",
+        "updatedAt": "2025-05-10T08:02:00Z"
+      }
+    ]
+  }
+}

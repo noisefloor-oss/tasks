@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  pull_request: {}
+  merge_group:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          govulncheck ./...
+      - run: go test -timeout 20m ./...
+
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check curated source content
+        run: go test -count=1 -timeout 20m ./internal/exportcheck -run '^TestExportContent$'
+      - name: Build and vet extracted source
+        run: go test -count=1 -timeout 20m ./internal/exportcheck -run '^TestExportBuildAndVet$'

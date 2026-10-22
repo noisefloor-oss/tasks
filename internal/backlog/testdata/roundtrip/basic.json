@@ -1,0 +1,1289 @@
+{
+  "main": {
+    "metadata": {
+      "completedCount": 12,
+      "lastModified": "2025-05-10T09:00:00Z",
+      "tags": [
+        "main"
+      ],
+      "taskCount": 100,
+      "version": "1.0.0"
+    },
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Task 1: Set up project scaffolding",
+        "description": "Core infrastructure setup required for the project foundation.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:00:00Z"
+      },
+      {
+        "id": "2",
+        "title": "Task 2: Implement user authentication",
+        "description": "Implement secure user login and session management.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:01:00Z"
+      },
+      {
+        "id": "3",
+        "title": "Task 3: Design database schema",
+        "description": "Design normalized schema supporting all current and planned features.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:02:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "in-progress",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:02:00Z"
+      },
+      {
+        "id": "4",
+        "title": "Task 4: Create API endpoints",
+        "description": "RESTful endpoints following OpenAPI specification.",
+        "details": "",
+        "status": "review",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 4,
+            "status": "pending",
+            "title": "Spike for task 4"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:03:00Z"
+      },
+      {
+        "id": "5",
+        "title": "Task 5: Write unit tests",
+        "description": "Comprehensive test coverage for critical business logic.",
+        "details": "",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:04:00Z"
+      },
+      {
+        "id": "6",
+        "title": "Task 6: Set up CI/CD pipeline",
+        "description": "Automated build, test, and deployment workflow.",
+        "details": "",
+        "status": "deferred",
+        "priority": "low",
+        "dependencies": [
+          "5"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:05:00Z"
+      },
+      {
+        "id": "7",
+        "title": "Task 7: Configure logging system",
+        "description": "Structured logging with correlation IDs and log levels.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:06:00Z"
+      },
+      {
+        "id": "8",
+        "title": "Task 8: Implement caching layer",
+        "description": "In-memory cache with Redis fallback for high-traffic queries.",
+        "details": "",
+        "status": "blocked",
+        "priority": "medium",
+        "dependencies": [
+          "6"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:07:00Z"
+      },
+      {
+        "id": "9",
+        "title": "Task 9: Add rate limiting",
+        "description": "Per-endpoint rate limiting with configurable thresholds.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:08:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:08:00Z"
+      },
+      {
+        "id": "10",
+        "title": "Task 10: Create documentation",
+        "description": "API reference and developer onboarding guide.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:09:00Z"
+      },
+      {
+        "id": "11",
+        "title": "Task 11: Refactor legacy module",
+        "description": "Simplify the module interface and remove dead code paths.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [
+          "10"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:10:00Z"
+      },
+      {
+        "id": "12",
+        "title": "Task 12: Add health check endpoint",
+        "description": "Kubernetes-compatible health and readiness probes.",
+        "details": "",
+        "status": "review",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:11:00Z"
+      },
+      {
+        "id": "13",
+        "title": "Task 13: Implement search functionality",
+        "description": "Full-text search across documents with relevance scoring.",
+        "details": "",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 13,
+            "status": "pending",
+            "title": "Spike for task 13"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:12:00Z"
+      },
+      {
+        "id": "14",
+        "title": "Task 14: Set up monitoring dashboard",
+        "description": "Real-time system metrics with customizable dashboards.",
+        "details": "",
+        "status": "deferred",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:13:00Z"
+      },
+      {
+        "id": "15",
+        "title": "Task 15: Configure error tracking",
+        "description": "Sentry integration for production error tracking.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:14:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "cancelled",
+        "priority": "low",
+        "dependencies": [
+          "13"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:14:00Z"
+      },
+      {
+        "id": "16",
+        "title": "Task 16: Add data validation",
+        "description": "Input sanitization and schema-based request validation.",
+        "details": "",
+        "status": "blocked",
+        "priority": "high",
+        "dependencies": [
+          "15"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:15:00Z"
+      },
+      {
+        "id": "17",
+        "title": "Task 17: Implement file upload",
+        "description": "Multipart upload with progress tracking and virus scanning.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:16:00Z"
+      },
+      {
+        "id": "18",
+        "title": "Task 18: Create email notification system",
+        "description": "Transactional email templates with provider integration.",
+        "details": "",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:17:00Z"
+      },
+      {
+        "id": "19",
+        "title": "Task 19: Add pagination to list endpoints",
+        "description": "Cursor-based pagination for large result sets.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:18:00Z"
+      },
+      {
+        "id": "20",
+        "title": "Task 20: Set up backup strategy",
+        "description": "Automated daily backups with point-in-time recovery.",
+        "details": "",
+        "status": "review",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:19:00Z"
+      },
+      {
+        "id": "21",
+        "title": "Task 21: Set up project scaffolding",
+        "description": "Core infrastructure setup required for the project foundation.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:20:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [
+          "20"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:20:00Z"
+      },
+      {
+        "id": "22",
+        "title": "Task 22: Implement user authentication",
+        "description": "Implement secure user login and session management.",
+        "details": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [
+          "20"
+        ],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 22,
+            "status": "pending",
+            "title": "Spike for task 22"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:21:00Z"
+      },
+      {
+        "id": "23",
+        "title": "Task 23: Design database schema",
+        "description": "Design normalized schema supporting all current and planned features.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:22:00Z"
+      },
+      {
+        "id": "24",
+        "title": "Task 24: Create API endpoints",
+        "description": "RESTful endpoints following OpenAPI specification.",
+        "details": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:23:00Z"
+      },
+      {
+        "id": "25",
+        "title": "Task 25: Write unit tests",
+        "description": "Comprehensive test coverage for critical business logic.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:24:00Z"
+      },
+      {
+        "id": "26",
+        "title": "Task 26: Set up CI/CD pipeline",
+        "description": "Automated build, test, and deployment workflow.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          "25"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:25:00Z"
+      },
+      {
+        "id": "27",
+        "title": "Task 27: Configure logging system",
+        "description": "Structured logging with correlation IDs and log levels.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:26:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "in-progress",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:26:00Z"
+      },
+      {
+        "id": "28",
+        "title": "Task 28: Implement caching layer",
+        "description": "In-memory cache with Redis fallback for high-traffic queries.",
+        "details": "",
+        "status": "review",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:27:00Z"
+      },
+      {
+        "id": "29",
+        "title": "Task 29: Add rate limiting",
+        "description": "Per-endpoint rate limiting with configurable thresholds.",
+        "details": "",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [
+          "27"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:28:00Z"
+      },
+      {
+        "id": "30",
+        "title": "Task 30: Create documentation",
+        "description": "API reference and developer onboarding guide.",
+        "details": "",
+        "status": "deferred",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:29:00Z"
+      },
+      {
+        "id": "31",
+        "title": "Task 31: Refactor legacy module",
+        "description": "Simplify the module interface and remove dead code paths.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "high",
+        "dependencies": [
+          "30"
+        ],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 31,
+            "status": "pending",
+            "title": "Spike for task 31"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:30:00Z"
+      },
+      {
+        "id": "32",
+        "title": "Task 32: Add health check endpoint",
+        "description": "Kubernetes-compatible health and readiness probes.",
+        "details": "",
+        "status": "blocked",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:31:00Z"
+      },
+      {
+        "id": "33",
+        "title": "Task 33: Implement search functionality",
+        "description": "Full-text search across documents with relevance scoring.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:32:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:32:00Z"
+      },
+      {
+        "id": "34",
+        "title": "Task 34: Set up monitoring dashboard",
+        "description": "Real-time system metrics with customizable dashboards.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:33:00Z"
+      },
+      {
+        "id": "35",
+        "title": "Task 35: Configure error tracking",
+        "description": "Sentry integration for production error tracking.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:34:00Z"
+      },
+      {
+        "id": "36",
+        "title": "Task 36: Add data validation",
+        "description": "Input sanitization and schema-based request validation.",
+        "details": "",
+        "status": "review",
+        "priority": "low",
+        "dependencies": [
+          "35",
+          "34"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:35:00Z"
+      },
+      {
+        "id": "37",
+        "title": "Task 37: Implement file upload",
+        "description": "Multipart upload with progress tracking and virus scanning.",
+        "details": "",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:36:00Z"
+      },
+      {
+        "id": "38",
+        "title": "Task 38: Create email notification system",
+        "description": "Transactional email templates with provider integration.",
+        "details": "",
+        "status": "deferred",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:37:00Z"
+      },
+      {
+        "id": "39",
+        "title": "Task 39: Add pagination to list endpoints",
+        "description": "Cursor-based pagination for large result sets.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:38:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "cancelled",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:38:00Z"
+      },
+      {
+        "id": "40",
+        "title": "Task 40: Set up backup strategy",
+        "description": "Automated daily backups with point-in-time recovery.",
+        "details": "",
+        "status": "blocked",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 40,
+            "status": "pending",
+            "title": "Spike for task 40"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:39:00Z"
+      },
+      {
+        "id": "41",
+        "title": "Task 41: Set up project scaffolding",
+        "description": "Core infrastructure setup required for the project foundation.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          "40"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:40:00Z"
+      },
+      {
+        "id": "42",
+        "title": "Task 42: Implement user authentication",
+        "description": "Implement secure user login and session management.",
+        "details": "",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:41:00Z"
+      },
+      {
+        "id": "43",
+        "title": "Task 43: Design database schema",
+        "description": "Design normalized schema supporting all current and planned features.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "high",
+        "dependencies": [
+          "41"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:42:00Z"
+      },
+      {
+        "id": "44",
+        "title": "Task 44: Create API endpoints",
+        "description": "RESTful endpoints following OpenAPI specification.",
+        "details": "",
+        "status": "review",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:43:00Z"
+      },
+      {
+        "id": "45",
+        "title": "Task 45: Write unit tests",
+        "description": "Comprehensive test coverage for critical business logic.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:44:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:44:00Z"
+      },
+      {
+        "id": "46",
+        "title": "Task 46: Set up CI/CD pipeline",
+        "description": "Automated build, test, and deployment workflow.",
+        "details": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [
+          "45"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:45:00Z"
+      },
+      {
+        "id": "47",
+        "title": "Task 47: Configure logging system",
+        "description": "Structured logging with correlation IDs and log levels.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:46:00Z"
+      },
+      {
+        "id": "48",
+        "title": "Task 48: Implement caching layer",
+        "description": "In-memory cache with Redis fallback for high-traffic queries.",
+        "details": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:47:00Z"
+      },
+      {
+        "id": "49",
+        "title": "Task 49: Add rate limiting",
+        "description": "Per-endpoint rate limiting with configurable thresholds.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 49,
+            "status": "pending",
+            "title": "Spike for task 49"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:48:00Z"
+      },
+      {
+        "id": "50",
+        "title": "Task 50: Create documentation",
+        "description": "API reference and developer onboarding guide.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          "48"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:49:00Z"
+      },
+      {
+        "id": "51",
+        "title": "Task 51: Refactor legacy module",
+        "description": "Simplify the module interface and remove dead code paths.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:50:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "in-progress",
+        "priority": "low",
+        "dependencies": [
+          "50"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:50:00Z"
+      },
+      {
+        "id": "52",
+        "title": "Task 52: Add health check endpoint",
+        "description": "Kubernetes-compatible health and readiness probes.",
+        "details": "",
+        "status": "review",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:51:00Z"
+      },
+      {
+        "id": "53",
+        "title": "Task 53: Implement search functionality",
+        "description": "Full-text search across documents with relevance scoring.",
+        "details": "",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:52:00Z"
+      },
+      {
+        "id": "54",
+        "title": "Task 54: Set up monitoring dashboard",
+        "description": "Real-time system metrics with customizable dashboards.",
+        "details": "",
+        "status": "deferred",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:53:00Z"
+      },
+      {
+        "id": "55",
+        "title": "Task 55: Configure error tracking",
+        "description": "Sentry integration for production error tracking.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:54:00Z"
+      },
+      {
+        "id": "56",
+        "title": "Task 56: Add data validation",
+        "description": "Input sanitization and schema-based request validation.",
+        "details": "",
+        "status": "blocked",
+        "priority": "medium",
+        "dependencies": [
+          "55"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:55:00Z"
+      },
+      {
+        "id": "57",
+        "title": "Task 57: Implement file upload",
+        "description": "Multipart upload with progress tracking and virus scanning.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T08:56:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [
+          "55"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:56:00Z"
+      },
+      {
+        "id": "58",
+        "title": "Task 58: Create email notification system",
+        "description": "Transactional email templates with provider integration.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 58,
+            "status": "pending",
+            "title": "Spike for task 58"
+          }
+        ],
+        "updatedAt": "2025-05-10T08:57:00Z"
+      },
+      {
+        "id": "59",
+        "title": "Task 59: Add pagination to list endpoints",
+        "description": "Cursor-based pagination for large result sets.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:58:00Z"
+      },
+      {
+        "id": "60",
+        "title": "Task 60: Set up backup strategy",
+        "description": "Automated daily backups with point-in-time recovery.",
+        "details": "",
+        "status": "review",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:59:00Z"
+      },
+      {
+        "id": "61",
+        "title": "Task 61: Set up project scaffolding",
+        "description": "Core infrastructure setup required for the project foundation.",
+        "details": "",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          "60"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:00:00Z"
+      },
+      {
+        "id": "62",
+        "title": "Task 62: Implement user authentication",
+        "description": "Implement secure user login and session management.",
+        "details": "",
+        "status": "deferred",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:01:00Z"
+      },
+      {
+        "id": "63",
+        "title": "Task 63: Design database schema",
+        "description": "Design normalized schema supporting all current and planned features.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:02:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "cancelled",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:02:00Z"
+      },
+      {
+        "id": "64",
+        "title": "Task 64: Create API endpoints",
+        "description": "RESTful endpoints following OpenAPI specification.",
+        "details": "",
+        "status": "blocked",
+        "priority": "high",
+        "dependencies": [
+          "62"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:03:00Z"
+      },
+      {
+        "id": "65",
+        "title": "Task 65: Write unit tests",
+        "description": "Comprehensive test coverage for critical business logic.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:04:00Z"
+      },
+      {
+        "id": "66",
+        "title": "Task 66: Set up CI/CD pipeline",
+        "description": "Automated build, test, and deployment workflow.",
+        "details": "",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [
+          "65"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:05:00Z"
+      },
+      {
+        "id": "67",
+        "title": "Task 67: Configure logging system",
+        "description": "Structured logging with correlation IDs and log levels.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 67,
+            "status": "pending",
+            "title": "Spike for task 67"
+          }
+        ],
+        "updatedAt": "2025-05-10T09:06:00Z"
+      },
+      {
+        "id": "68",
+        "title": "Task 68: Implement caching layer",
+        "description": "In-memory cache with Redis fallback for high-traffic queries.",
+        "details": "",
+        "status": "review",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:07:00Z"
+      },
+      {
+        "id": "69",
+        "title": "Task 69: Add rate limiting",
+        "description": "Per-endpoint rate limiting with configurable thresholds.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:08:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:08:00Z"
+      },
+      {
+        "id": "70",
+        "title": "Task 70: Create documentation",
+        "description": "API reference and developer onboarding guide.",
+        "details": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:09:00Z"
+      },
+      {
+        "id": "71",
+        "title": "Task 71: Refactor legacy module",
+        "description": "Simplify the module interface and remove dead code paths.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [
+          "70",
+          "69"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:10:00Z"
+      },
+      {
+        "id": "72",
+        "title": "Task 72: Add health check endpoint",
+        "description": "Kubernetes-compatible health and readiness probes.",
+        "details": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:11:00Z"
+      },
+      {
+        "id": "73",
+        "title": "Task 73: Implement search functionality",
+        "description": "Full-text search across documents with relevance scoring.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:12:00Z"
+      },
+      {
+        "id": "74",
+        "title": "Task 74: Set up monitoring dashboard",
+        "description": "Real-time system metrics with customizable dashboards.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:13:00Z"
+      },
+      {
+        "id": "75",
+        "title": "Task 75: Configure error tracking",
+        "description": "Sentry integration for production error tracking.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:14:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "in-progress",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:14:00Z"
+      },
+      {
+        "id": "76",
+        "title": "Task 76: Add data validation",
+        "description": "Input sanitization and schema-based request validation.",
+        "details": "",
+        "status": "review",
+        "priority": "high",
+        "dependencies": [
+          "75"
+        ],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 76,
+            "status": "pending",
+            "title": "Spike for task 76"
+          }
+        ],
+        "updatedAt": "2025-05-10T09:15:00Z"
+      },
+      {
+        "id": "77",
+        "title": "Task 77: Implement file upload",
+        "description": "Multipart upload with progress tracking and virus scanning.",
+        "details": "",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:16:00Z"
+      },
+      {
+        "id": "78",
+        "title": "Task 78: Create email notification system",
+        "description": "Transactional email templates with provider integration.",
+        "details": "",
+        "status": "deferred",
+        "priority": "low",
+        "dependencies": [
+          "76"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:17:00Z"
+      },
+      {
+        "id": "79",
+        "title": "Task 79: Add pagination to list endpoints",
+        "description": "Cursor-based pagination for large result sets.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:18:00Z"
+      },
+      {
+        "id": "80",
+        "title": "Task 80: Set up backup strategy",
+        "description": "Automated daily backups with point-in-time recovery.",
+        "details": "",
+        "status": "blocked",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:19:00Z"
+      },
+      {
+        "id": "81",
+        "title": "Task 81: Set up project scaffolding",
+        "description": "Core infrastructure setup required for the project foundation.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:20:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [
+          "80"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:20:00Z"
+      },
+      {
+        "id": "82",
+        "title": "Task 82: Implement user authentication",
+        "description": "Implement secure user login and session management.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:21:00Z"
+      },
+      {
+        "id": "83",
+        "title": "Task 83: Design database schema",
+        "description": "Design normalized schema supporting all current and planned features.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:22:00Z"
+      },
+      {
+        "id": "84",
+        "title": "Task 84: Create API endpoints",
+        "description": "RESTful endpoints following OpenAPI specification.",
+        "details": "",
+        "status": "review",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:23:00Z"
+      },
+      {
+        "id": "85",
+        "title": "Task 85: Write unit tests",
+        "description": "Comprehensive test coverage for critical business logic.",
+        "details": "",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          "83"
+        ],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 85,
+            "status": "pending",
+            "title": "Spike for task 85"
+          }
+        ],
+        "updatedAt": "2025-05-10T09:24:00Z"
+      },
+      {
+        "id": "86",
+        "title": "Task 86: Set up CI/CD pipeline",
+        "description": "Automated build, test, and deployment workflow.",
+        "details": "",
+        "status": "deferred",
+        "priority": "medium",
+        "dependencies": [
+          "85"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:25:00Z"
+      },
+      {
+        "id": "87",
+        "title": "Task 87: Configure logging system",
+        "description": "Structured logging with correlation IDs and log levels.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:26:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "cancelled",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:26:00Z"
+      },
+      {
+        "id": "88",
+        "title": "Task 88: Implement caching layer",
+        "description": "In-memory cache with Redis fallback for high-traffic queries.",
+        "details": "",
+        "status": "blocked",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:27:00Z"
+      },
+      {
+        "id": "89",
+        "title": "Task 89: Add rate limiting",
+        "description": "Per-endpoint rate limiting with configurable thresholds.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:28:00Z"
+      },
+      {
+        "id": "90",
+        "title": "Task 90: Create documentation",
+        "description": "API reference and developer onboarding guide.",
+        "details": "",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:29:00Z"
+      },
+      {
+        "id": "91",
+        "title": "Task 91: Refactor legacy module",
+        "description": "Simplify the module interface and remove dead code paths.",
+        "details": "",
+        "status": "in-progress",
+        "priority": "high",
+        "dependencies": [
+          "90"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:30:00Z"
+      },
+      {
+        "id": "92",
+        "title": "Task 92: Add health check endpoint",
+        "description": "Kubernetes-compatible health and readiness probes.",
+        "details": "",
+        "status": "review",
+        "priority": "medium",
+        "dependencies": [
+          "90"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:31:00Z"
+      },
+      {
+        "id": "93",
+        "title": "Task 93: Implement search functionality",
+        "description": "Full-text search across documents with relevance scoring.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:32:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:32:00Z"
+      },
+      {
+        "id": "94",
+        "title": "Task 94: Set up monitoring dashboard",
+        "description": "Real-time system metrics with customizable dashboards.",
+        "details": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "dependencies": [],
+            "description": "Short investigation before the main work.",
+            "details": "",
+            "id": 1,
+            "parentTaskId": 94,
+            "status": "pending",
+            "title": "Spike for task 94"
+          }
+        ],
+        "updatedAt": "2025-05-10T09:33:00Z"
+      },
+      {
+        "id": "95",
+        "title": "Task 95: Configure error tracking",
+        "description": "Sentry integration for production error tracking.",
+        "details": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:34:00Z"
+      },
+      {
+        "id": "96",
+        "title": "Task 96: Add data validation",
+        "description": "Input sanitization and schema-based request validation.",
+        "details": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [
+          "95"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:35:00Z"
+      },
+      {
+        "id": "97",
+        "title": "Task 97: Implement file upload",
+        "description": "Multipart upload with progress tracking and virus scanning.",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:36:00Z"
+      },
+      {
+        "id": "98",
+        "title": "Task 98: Create email notification system",
+        "description": "Transactional email templates with provider integration.",
+        "details": "",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:37:00Z"
+      },
+      {
+        "id": "99",
+        "title": "Task 99: Add pagination to list endpoints",
+        "description": "Cursor-based pagination for large result sets.",
+        "details": "Steps:\n1. Draft & review the approach\n2. Implement <carefully>\n\n<info added 2025-05-10T09:38:00Z>\nImported from the planning doc; scope trimmed to v1.\n</info>",
+        "status": "in-progress",
+        "priority": "low",
+        "dependencies": [
+          "97"
+        ],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:38:00Z"
+      },
+      {
+        "id": "100",
+        "title": "Task 100: Set up backup strategy",
+        "description": "Automated daily backups with point-in-time recovery.",
+        "details": "",
+        "status": "review",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T09:39:00Z"
+      }
+    ]
+  }
+}

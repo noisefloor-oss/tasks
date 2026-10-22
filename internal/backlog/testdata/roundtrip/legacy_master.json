@@ -1,0 +1,329 @@
+{
+  "master": {
+    "metadata": {
+      "completedCount": 5,
+      "lastModified": "2025-05-10T09:00:00Z",
+      "tags": [
+        "master"
+      ],
+      "taskCount": 30,
+      "version": "1.0.0"
+    },
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Legacy Task 1: Set up project scaffolding",
+        "description": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 2,
+        "title": "Legacy Task 2: Implement user authentication",
+        "description": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 3,
+        "title": "Legacy Task 3: Design database schema",
+        "description": "",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 4,
+        "title": "Legacy Task 4: Create API endpoints",
+        "description": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 5,
+        "title": "Legacy Task 5: Write unit tests",
+        "description": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 6,
+        "title": "Legacy Task 6: Set up CI/CD pipeline",
+        "description": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 7,
+        "title": "Legacy Task 7: Configure logging system",
+        "description": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 8,
+        "title": "Legacy Task 8: Implement caching layer",
+        "description": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 9,
+        "title": "Legacy Task 9: Add rate limiting",
+        "description": "",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [
+          8
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 10,
+        "title": "Legacy Task 10: Create documentation",
+        "description": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 11,
+        "title": "Legacy Task 11: Refactor legacy module",
+        "description": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 12,
+        "title": "Legacy Task 12: Add health check endpoint",
+        "description": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 13,
+        "title": "Legacy Task 13: Implement search functionality",
+        "description": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          12
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 14,
+        "title": "Legacy Task 14: Set up monitoring dashboard",
+        "description": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 15,
+        "title": "Legacy Task 15: Configure error tracking",
+        "description": "",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 16,
+        "title": "Legacy Task 16: Add data validation",
+        "description": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 17,
+        "title": "Legacy Task 17: Implement file upload",
+        "description": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [
+          16
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 18,
+        "title": "Legacy Task 18: Create email notification system",
+        "description": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 19,
+        "title": "Legacy Task 19: Add pagination to list endpoints",
+        "description": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 20,
+        "title": "Legacy Task 20: Set up backup strategy",
+        "description": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 21,
+        "title": "Legacy Task 21: Set up project scaffolding",
+        "description": "",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [
+          20
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 22,
+        "title": "Legacy Task 22: Implement user authentication",
+        "description": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 23,
+        "title": "Legacy Task 23: Design database schema",
+        "description": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 24,
+        "title": "Legacy Task 24: Create API endpoints",
+        "description": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 25,
+        "title": "Legacy Task 25: Write unit tests",
+        "description": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          24
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 26,
+        "title": "Legacy Task 26: Set up CI/CD pipeline",
+        "description": "",
+        "status": "in-progress",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 27,
+        "title": "Legacy Task 27: Configure logging system",
+        "description": "",
+        "status": "done",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 28,
+        "title": "Legacy Task 28: Implement caching layer",
+        "description": "",
+        "status": "deferred",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 29,
+        "title": "Legacy Task 29: Add rate limiting",
+        "description": "",
+        "status": "cancelled",
+        "priority": "medium",
+        "dependencies": [
+          28
+        ],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      },
+      {
+        "id": 30,
+        "title": "Legacy Task 30: Create documentation",
+        "description": "",
+        "status": "blocked",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2024-06-15T12:00:00Z"
+      }
+    ]
+  }
+}

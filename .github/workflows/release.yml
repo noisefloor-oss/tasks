@@ -1,0 +1,122 @@
+name: release
+
+# Tag-triggered builds run only in the public mirror, on hosted runners.
+# Every job is guarded so this snapshot workflow is a no-op elsewhere.
+# Release assets can be traced back to the tagged source and build logs.
+# Actions are pinned by commit SHA.
+
+on:
+  push:
+    tags: ['v*']
+
+# Jobs that execute repository code never hold release-writing authority.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'noisefloor-oss/tasks'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # No checkout; existing releases, including drafts and notes, survive.
+      - name: Ensure the release for the tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes "noise-tasks $GITHUB_REF_NAME — installation archives and SHA256SUMS attached by the release workflow."
+
+  build:
+    if: github.repository == 'noisefloor-oss/tasks'
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    env:
+      CGO_ENABLED: '0'
+      # Root-owned packaging must not depend on the builder's Git trust config.
+      GOFLAGS: -trimpath -buildvcs=false
+      GOOS: linux
+      GOARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: Require a well-formed release tag
+        # The tag name reaches make's single-quoted ldflags, and make package
+        # runs as root; refuse anything but a plain version.
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ;;
+            *) false ;;
+          esac || { echo "refusing tag '$GITHUB_REF_NAME': expected vX.Y.Z[-pre]" >&2; exit 1; }
+      - name: Build
+        run: make build VERSION="${GITHUB_REF_NAME#v}"
+      - name: Smoke-run version and help outside the checkout
+        run: |
+          bin="$GITHUB_WORKSPACE/build/bin/noise-tasks"
+          smoke=$(mktemp -d)
+          trap 'rmdir "$smoke"' EXIT
+          cd "$smoke"
+          expected="noise-tasks ${GITHUB_REF_NAME#v}"
+          actual=$("$bin" version)
+          if [ "$actual" != "$expected" ]; then
+            echo "version smoke failed: got '$actual', want '$expected'" >&2
+            exit 1
+          fi
+          "$bin" --help
+      - name: Package the installation tree
+        # The broker requires root ownership and mode 6755; preserve both
+        # inside a tarball rather than uploading the installation tree.
+        run: |
+          staging=$(sudo mktemp -d /tmp/noise-package.XXXXXX)
+          trap 'sudo rm -rf "$staging"' EXIT
+          sudo env PATH="$PATH" CGO_ENABLED="$CGO_ENABLED" GOFLAGS="$GOFLAGS" \
+            GOOS="$GOOS" GOARCH="$GOARCH" \
+            make package GO="$(command -v go)" VERSION="${GITHUB_REF_NAME#v}" \
+            DESTDIR="$staging"
+          sudo cmp build/bin/noise-tasks "$staging/usr/local/bin/noise-tasks"
+          sudo tar -C "$staging" -czf - usr > "noise-tasks-linux-$GOARCH.tar.gz"
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: noise-tasks-linux-${{ matrix.arch }}
+          path: noise-tasks-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: github.repository == 'noisefloor-oss/tasks'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # No checkout or execution of downloaded assets under write authority.
+      # The complete matrix must succeed before any assets are attached.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: noise-tasks-linux-*
+          merge-multiple: true
+      - name: Attach installation archives and SHA256SUMS to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum noise-tasks-linux-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" \
+            noise-tasks-linux-*.tar.gz SHA256SUMS --clobber

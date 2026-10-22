@@ -1,0 +1,49 @@
+{
+  "main": {
+    "metadata": {
+      "_legacy_key": "preserved-value",
+      "created": "2024-12-01T00:00:00Z",
+      "lastModified": "2025-01-01T00:00:00Z",
+      "tags": [
+        "main"
+      ],
+      "taskCount": 3,
+      "version": "0.5.0"
+    },
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Task 1",
+        "description": "Description 1",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-01-01T00:00:00Z"
+      },
+      {
+        "id": "2",
+        "title": "Task 2",
+        "description": "Description 2",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-01-01T00:00:00Z"
+      },
+      {
+        "id": "3",
+        "title": "Task 3",
+        "description": "Description 3",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-01-01T00:00:00Z"
+      }
+    ]
+  }
+}

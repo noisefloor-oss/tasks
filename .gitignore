@@ -1,0 +1,9 @@
+/noisetask
+/noise
+/noise-tasks
+/.worktrees/
+/build/
+/.review/
+/.lane-brief.md
+/.lane-output.log
+/.xdg/

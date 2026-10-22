@@ -1,0 +1,37 @@
+{
+  "main": {
+    "metadata": {
+      "completedCount": 0,
+      "lastModified": "2025-05-10T09:00:00Z",
+      "tags": [
+        "main"
+      ],
+      "taskCount": 2,
+      "version": "1.0.0"
+    },
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Task 1",
+        "description": "",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:00:00Z"
+      },
+      {
+        "id": "1",
+        "title": "Task 1 dup",
+        "description": "",
+        "details": "",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [],
+        "updatedAt": "2025-05-10T08:01:00Z"
+      }
+    ]
+  }
+}
