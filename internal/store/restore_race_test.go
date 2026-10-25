@@ -288,6 +288,7 @@ func TestRestoreStagedPayloadReceiptRule(t *testing.T) {
 				"schemaVersion": int64(ReceiptSchemaVersion),
 				"kind":          ReceiptKindRestore,
 				"receiptId":     rid,
+				"familyId":      familyID,
 				"requestId":     "sp-1",
 				"inputDigest":   input,
 				"committedAt":   "2026-01-01T00:00:00Z",

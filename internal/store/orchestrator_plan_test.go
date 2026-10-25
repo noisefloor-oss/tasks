@@ -374,6 +374,79 @@ func TestApplyOrchestratorPlanConcurrentBatchesAllocateDisjointIDs(t *testing.T)
 	}
 }
 
+func TestRemoveAssignedTaskPreservesPlanRecords(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		id       string
+		force    bool
+		stripped string
+	}{
+		{name: "non-force", raw: strings.Replace(validOrchestratorPlan, `"task":{"key":"spec"}`, `"task":{"key":"code"}`, 1), id: "3", stripped: "[]"},
+		{name: "force", raw: validOrchestratorPlan, id: "2", force: true, stripped: "[3]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := orchestratorDB(t)
+			p := mustOrchestratorPlan(t, tt.raw)
+			applied, err := db.ApplyOrchestratorPlan(p, p.Digest, "req-remove-assigned")
+			if err != nil {
+				t.Fatal(err)
+			}
+			stripped, err := db.RemoveTask("main", tt.id, 1, tt.force, nil)
+			if err != nil || fmt.Sprint(stripped) != tt.stripped {
+				t.Fatalf("removal stripped=%v err=%v", stripped, err)
+			}
+			if task, err := db.GetTask("main", tt.id); err != nil || task != nil {
+				t.Fatalf("removed task=%+v err=%v", task, err)
+			}
+			for table, want := range map[string]int{"assignments": 0, "plans": 1, "plan_mappings": 2, "receipts": 1} {
+				var got int
+				if err := db.db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&got); err != nil || got != want {
+					t.Fatalf("%s count=%d err=%v want=%d", table, got, err, want)
+				}
+			}
+			replay, err := db.ApplyOrchestratorPlan(p, p.Digest, "req-remove-assigned")
+			if err != nil || !replay.Replayed || replay.Receipt["receiptDigest"] != applied.Receipt["receiptDigest"] ||
+				len(replay.Receipt["taskMappings"].([]any)) != 2 {
+				t.Fatalf("replay=%+v err=%v", replay, err)
+			}
+			if tt.force {
+				dependent, err := db.GetTask("main", "3")
+				if err != nil || dependent == nil || len(dependent.Dependencies) != 0 || dependent.Revision != 2 {
+					t.Fatalf("dependent=%+v err=%v", dependent, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveAssignedTaskRollsBackAssignmentCleanup(t *testing.T) {
+	db := orchestratorDB(t)
+	p := mustOrchestratorPlan(t, validOrchestratorPlan)
+	if _, err := db.ApplyOrchestratorPlan(p, p.Digest, "req-remove-rollback"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.Exec(`CREATE TRIGGER reject_assigned_task_delete BEFORE DELETE ON tasks
+		WHEN OLD.tag='main' AND OLD.id='2' BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RemoveTask("main", "2", 1, true, nil); err == nil || !strings.Contains(err.Error(), "injected delete failure") {
+		t.Fatalf("removal=%v", err)
+	}
+	if task, err := db.GetTask("main", "2"); err != nil || task == nil {
+		t.Fatalf("task after rollback=%+v err=%v", task, err)
+	}
+	dependent, err := db.GetTask("main", "3")
+	if err != nil || dependent == nil || len(dependent.Dependencies) != 1 || dependent.Dependencies[0] != "2" || dependent.Revision != 1 {
+		t.Fatalf("dependent after rollback=%+v err=%v", dependent, err)
+	}
+	var assignments int
+	if err := db.db.QueryRow(`SELECT COUNT(*) FROM assignments WHERE tag='main' AND task_id='2'`).Scan(&assignments); err != nil || assignments != 1 {
+		t.Fatalf("assignments after rollback=%d err=%v", assignments, err)
+	}
+}
+
 func TestPlanResultDigestStable(t *testing.T) {
 	p := mustOrchestratorPlan(t, validOrchestratorPlan)
 	mappings := []PlanTaskMapping{{Key: "spec", ID: "2"}, {Key: "code", ID: "3"}}

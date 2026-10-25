@@ -3,26 +3,66 @@ name: ci
 on:
   pull_request: {}
   merge_group:
-  push:
-    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: tasks-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  checks:
+    runs-on: [self-hosted, Linux, native-linux]
     steps:
+      - name: Reject external fork source on persistent runners
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Import this change into a same-repository branch before running self-hosted CI." >&2
+          exit 1
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go vet ./...
-      - run: |
+          cache: ${{ github.event_name != 'pull_request' }}
+      - name: Pull request preflight
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^ HEAD
+          git ls-files -z -- '*.go' ':(exclude)**/testdata/**' |
+            xargs -0 -r gofmt -l > "$RUNNER_TEMP/unformatted-go.txt"
+          if test -s "$RUNNER_TEMP/unformatted-go.txt"; then
+            echo 'Run gofmt on these source files:' >&2
+            cat "$RUNNER_TEMP/unformatted-go.txt" >&2
+            exit 1
+          fi
+      - name: Build and vet
+        if: github.event_name != 'pull_request'
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Vulnerability scan
+        if: github.event_name != 'pull_request'
+        run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
-      - run: go test -timeout 20m ./...
+      - name: Test
+        if: github.event_name != 'pull_request'
+        run: go test -timeout 20m ./...
 
   export:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Linux, native-linux]
     steps:
+      - name: Reject external fork source on persistent runners
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Import this change into a same-repository branch before running self-hosted CI." >&2
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
@@ -31,3 +71,22 @@ jobs:
         run: go test -count=1 -timeout 20m ./internal/exportcheck -run '^TestExportContent$'
       - name: Build and vet extracted source
         run: go test -count=1 -timeout 20m ./internal/exportcheck -run '^TestExportBuildAndVet$'
+
+  build:
+    needs: [checks, export]
+    if: always()
+    runs-on: [self-hosted, Linux, native-linux]
+    steps:
+      - name: Enforce the required CI result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          EXPORT_RESULT: ${{ needs.export.result }}
+        run: |
+          set -euo pipefail
+          test "$CHECKS_RESULT" = success
+          if test "$EVENT_NAME" = pull_request; then
+            test "$EXPORT_RESULT" = skipped
+          else
+            test "$EXPORT_RESULT" = success
+          fi

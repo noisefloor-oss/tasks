@@ -77,8 +77,8 @@ On every invocation the broker, in order:
    clock, then checks the capability's verb and invoking uid/gid against
    the actual invocation. Any mismatch is a refusal.
 5. Validates every binding syntactically (paths absolute and lexically
-   clean, branch exactly `tasks/<tag>/<id>`, target exactly
-   `<owner>/.worktrees/<tag>-<id>`) and then on the filesystem with
+   clean, branch exactly `tasks/<tag>/<id>` and at most 200 bytes, target
+   exactly `<owner>/.worktrees/<tag>-<id>`) and then on the filesystem with
    no-follow `openat` walks: the owner boundary, the registration root,
    and `.worktrees` must be real, non-symlink directories. For `create`,
    a missing target is the fresh case and an existing target is admitted
@@ -89,9 +89,23 @@ On every invocation the broker, in order:
 6. If the registration root is not visible in the current mount namespace,
    re-enters the host mount namespace — only through PID 1's namespace or
    the authenticated inherited fd-3 descriptor, never a caller-supplied
-   path — while still privileged. On platforms without Linux mount
-   namespaces, the registration root must already be directly reachable;
-   namespace re-entry refuses fail-closed.
+   path — while still privileged. The fd-3 descriptor must identify an nsfs
+   mount namespace whose `NS_GET_USERNS` owner matches `/proc/1/ns/user` by
+   device and inode, refusing a namespace owned by a caller-created user
+   namespace. Before entry the broker opens its current executable with
+   close-on-exec; after detaching the locked thread's shared filesystem
+   context and entering the namespace it resets the working directory and
+   re-executes that pinned descriptor with `execveat(..., AT_EMPTY_PATH)`.
+   It never resolves an executable path supplied by the entered namespace.
+   The fresh runtime and every Git child therefore share the entered
+   namespace. The bounded document crosses the internal exec on an anonymous
+   in-memory descriptor: the auxiliary descriptor is close-on-exec, only its
+   fd-3 duplicate is inheritable, and the namespace descriptor is closed.
+   Key loading after re-exec is safe because the namespace swap cannot select
+   replacement broker code; the fixed key path is resolved only after this
+   authentication and retains the root-owned, mode-0400, no-follow checks in
+   step 3. On platforms without Linux mount namespaces, the registration root
+   must already be directly reachable; namespace re-entry refuses fail-closed.
 7. Drops privilege permanently to the invoking uid/gid (supplementary
    groups cleared, all three copies of each id set) before any Git or
    target effect.
@@ -102,6 +116,14 @@ On every invocation the broker, in order:
    `GIT_OPTIONAL_LOCKS=0`); nothing inherited reaches the child. It first
    proves with `rev-parse --git-common-dir` that the bound registration
    root is exactly this repository's worktrees directory.
+
+Fresh provisioning applies SPEC §9.4's ASCII `[a-zA-Z0-9._-]`, 64-byte tag
+grammar before a saga is planned. Mint and broker validation instead preserve
+the historical nonempty, no-slash tag shape for an exact saga identity, subject
+to the 200-byte branch bound. This deliberate recovery compatibility keeps
+historical `feature+1`, Unicode, and over-64-byte identities usable for replay,
+recovery, removal, and legacy cleanup; it does not admit them to fresh
+planning.
 
 The three verbs are idempotent for identical bound inputs: `create` uses
 exactly the authenticated saga-recorded base commit and is a no-op success
@@ -211,8 +233,10 @@ deployment conformance suite owns those assertions.
   path, then launches it with a non-root real uid/gid so the kernel supplies
   the real setuid transition on an isolated root runner:
 
+  Run as root on that runner, without a privilege-escalation wrapper:
+
   ```sh
-  NOISE_BROKER_PRIVILEGED_TESTS=1 sudo -E go test \
+  NOISE_BROKER_PRIVILEGED_TESTS=1 go test \
     ./cmd/noise-worktree-broker/ -run Privileged -v
   ```
 
@@ -224,6 +248,10 @@ deployment conformance suite owns those assertions.
   an existing unregistered target), the permanent privilege drop (every
   created path is owned by the bound non-root identity), operation under
   a hostile inherited environment (fixed argv and stripped environment),
-  and leaf denial without fd 3. It skips safely — as do the unprivileged
-  real-process tests — whenever the opt-in variable, root, or the Go
-  toolchain is absent.
+  and leaf denial without fd 3. Linux-only cases additionally hide the
+  repository behind a real confined mount namespace, start the broker from
+  the hidden working directory, and prove both the namespace-fd and PID-1
+  channels create the worktree through Git in the host namespace with the
+  dropped identity. They skip safely — as do the unprivileged real-process
+  tests — whenever the opt-in variable, root, the Go toolchain, or kernel
+  namespace permission is absent.

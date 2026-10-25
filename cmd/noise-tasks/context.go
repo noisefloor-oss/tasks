@@ -49,6 +49,20 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
+	blocked, reason, err := contextBlocked(storePath)
+	if err != nil {
+		// Any malformed or state-inconsistent journal is an operational
+		// failure: exit 1 with empty stdout rather than classifying or
+		// choosing authority (§2.2).
+		fmt.Fprintln(stderr, "noise-tasks: "+err.Error())
+		return 1
+	}
+	if !blocked {
+		if err := outsideGitRehomingGate(boundary); err != nil {
+			return fail(stderr, err)
+		}
+	}
+
 	result := &contextResult{
 		SchemaVersion:   5,
 		Start:           start,
@@ -69,14 +83,6 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		result.StoreOwnerBoundary, result.StoreSchemaVersion = owner, version
 	}
 	result.EngineSchemaVersion = store.SchemaVersion
-	blocked, reason, err := contextBlocked(storePath)
-	if err != nil {
-		// Any malformed or state-inconsistent journal is an operational
-		// failure: exit 1 with empty stdout rather than classifying or
-		// choosing authority (§2.2).
-		fmt.Fprintln(stderr, "noise-tasks: "+err.Error())
-		return 1
-	}
 	result.Blocked, result.BlockedReason = blocked, reason
 	result.Writable = !result.Blocked && contextWritable(filepath.Dir(storePath))
 	if err := writeJSON(stdout, result); err != nil {

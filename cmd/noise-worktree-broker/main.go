@@ -71,13 +71,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return refuse(stderr, err)
 	}
 
-	// Namespace re-entry happens only through the two authenticated
-	// channels — the inherited fd-3 descriptor or PID 1 — before the
-	// privilege drop, and only when the bound registration root is not
-	// visible in this namespace.
+	// Namespace re-entry immediately re-executes this binary. The fresh Go
+	// runtime and every later Git child therefore inherit one mount namespace;
+	// no runtime thread is left with the old namespace's filesystem context.
 	if !broker.RegistrationRootReachable(cap.RegistrationRoot) {
 		if os.Geteuid() == 0 {
+			if broker.AlreadyInPID1MountNamespace() {
+				return refuse(stderr, errors.New("registration root is unreachable after namespace re-entry"))
+			}
+			if err := broker.StageCapabilityForReexec(capabilityFd, capBytes); err != nil {
+				return refuse(stderr, err)
+			}
 			if err := broker.EnterPID1MountNamespace(); err != nil {
+				closeFd(capabilityFd)
 				return refuse(stderr, err)
 			}
 		} else {
@@ -123,14 +129,9 @@ func parseArgs(args []string) (verb string, err error) {
 	}
 }
 
-// readCapability reads the capability document from inherited fd 3 with a
-// complete, bounded read and then closes that descriptor, so the leaf
-// never inherits it. When fd 3 is instead the host's own mount-namespace
-// descriptor — the alternative authenticated channel — re-entry already
-// happened while probing it, the namespace descriptor is likewise closed,
-// and the document is read from stdin with the same complete, bounded
-// discipline: a partial or oversized stream is a refusal, never a
-// truncated document.
+// readCapability reads and closes a complete, bounded document channel. For
+// the namespace-fd channel, the document comes from stdin and is staged onto
+// fd 3 for the immediate internal re-exec.
 func readCapability(stdin io.Reader) ([]byte, error) {
 	doc, ok, err := readFdBounded(capabilityFd, maxDoc)
 	if err != nil {
@@ -140,11 +141,17 @@ func readCapability(stdin io.Reader) ([]byte, error) {
 		closeFd(capabilityFd)
 		return doc, nil
 	}
-	if err := broker.TryEnterNamespaceFD(capabilityFd); err == nil {
-		closeFd(capabilityFd)
-		return readStdinBounded(stdin, maxDoc)
+	if !broker.IsMountNamespaceFD(capabilityFd) {
+		return nil, errors.New("no host capability on fd 3")
 	}
-	return nil, errors.New("no host capability on fd 3")
+	doc, err = readStdinBounded(stdin, maxDoc)
+	if err != nil {
+		return nil, err
+	}
+	if err := broker.TryEnterNamespaceFD(capabilityFd, doc); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("namespace re-entry did not re-execute")
 }
 
 // readFdBounded reads fd to EOF. It returns ok=true only for a complete,

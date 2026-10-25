@@ -194,6 +194,100 @@ func TestCreateWithOwnerConcurrentCreatorsHaveOneWinner(t *testing.T) {
 	requireCompleteStore(t, path, dir)
 }
 
+func TestCreateWithOwnerConcurrentLosersPreserveWinnerCommit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, StoreFile)
+	orphanCommittedWAL(t, path, dir, "stale row", true)
+
+	const losers = 8
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseLosers := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseLosers()
+	original := createFaultHook
+	remaining := losers
+	var hookMu sync.Mutex
+	createFaultHook = func(op string) error {
+		if op != "pre-publish" {
+			return nil
+		}
+		hookMu.Lock()
+		if remaining == 0 {
+			hookMu.Unlock()
+			return nil
+		}
+		remaining--
+		if remaining == 0 {
+			close(ready)
+		}
+		hookMu.Unlock()
+		<-release
+		return nil
+	}
+	t.Cleanup(func() { createFaultHook = original })
+
+	errs := make([]error, losers)
+	var wg sync.WaitGroup
+	for i := range losers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d, err := CreateWithOwner(path, dir)
+			if d != nil {
+				d.Close()
+			}
+			errs[i] = err
+		}()
+	}
+	<-ready
+
+	winner, err := CreateWithOwner(path, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := winner.db.Exec(`PRAGMA wal_autocheckpoint=0`); err != nil {
+		winner.Close()
+		t.Fatal(err)
+	}
+	addTask(t, winner, "main", "winner committed")
+	releaseLosers()
+	wg.Wait()
+	for i, err := range errs {
+		if !errors.Is(err, os.ErrExist) {
+			t.Fatalf("loser %d error = %v, want os.ErrExist", i, err)
+		}
+	}
+	observer, err := Open(path)
+	if err != nil {
+		winner.Close()
+		t.Fatal(err)
+	}
+	if err := observer.IntegrityCheck(); err != nil {
+		observer.Close()
+		winner.Close()
+		t.Fatal(err)
+	}
+	requireTaskTitles(t, observer, "main", "winner committed")
+	if err := observer.Close(); err != nil {
+		winner.Close()
+		t.Fatal(err)
+	}
+	if err := winner.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.IntegrityCheck(); err != nil {
+		t.Fatal(err)
+	}
+	requireTaskTitles(t, db, "main", "winner committed")
+}
+
 // TestCreateWithOwnerExclusiveCannotEnterStagingGap proves the shared
 // maintenance lock covers the whole staging-to-publication window: while
 // creation sits between the complete staged database and the publishing

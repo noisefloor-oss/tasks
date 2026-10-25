@@ -454,6 +454,54 @@ func TestShowRequiresID(t *testing.T) {
 	}
 }
 
+func TestFixtureSymlinkFailsClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func([]string, io.Writer, io.Writer) int
+		args func(string) []string
+	}{
+		{"read", cmdShow, func(path string) []string {
+			return []string{"--file", path, "1"}
+		}},
+		{"mutation", cmdSetStatus, func(path string) []string {
+			return []string{"--file", path, "1", "done"}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := backlogFile(t, "main", taskLit("1", "first", "pending", "high"))
+			original, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(t.TempDir(), "tasks.json")
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+
+			code, stdout, stderr := runCmd(tt.run, tt.args(link)...)
+			wantStderr := "noise-tasks: backlog path is not a regular file: " + link + "\n"
+			if code != 1 || stdout != "" || stderr != wantStderr {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q; want 1, empty, %q", code, stdout, stderr, wantStderr)
+			}
+			info, err := os.Lstat(link)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("fixture after refusal = %v, %v; want symlink preserved", info, err)
+			}
+			if got, err := os.Readlink(link); err != nil || got != target {
+				t.Fatalf("symlink target = %q, %v; want %q", got, err, target)
+			}
+			after, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(after, original) {
+				t.Fatal("refused fixture command changed the symlink target")
+			}
+		})
+	}
+}
+
 func TestRefusesUnknownTag(t *testing.T) {
 	path := mixedBacklog(t)
 	for name, cmd := range map[string]func([]string, io.Writer, io.Writer) int{

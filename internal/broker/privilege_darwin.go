@@ -15,7 +15,15 @@ func EnterPID1MountNamespace() error {
 	return refuse("mount namespace re-entry is unsupported")
 }
 
-func TryEnterNamespaceFD(int) error {
+func AlreadyInPID1MountNamespace() bool { return false }
+
+func IsMountNamespaceFD(int) bool { return false }
+
+func StageCapabilityForReexec(int, []byte) error {
+	return refuse("mount namespace re-entry is unsupported")
+}
+
+func TryEnterNamespaceFD(int, []byte) error {
 	return refuse("mount namespace re-entry is unsupported")
 }
 

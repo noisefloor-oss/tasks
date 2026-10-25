@@ -86,6 +86,70 @@ func backupTask(t *testing.T, db *DB, tag, id string) *Task {
 	return task
 }
 
+func requirePublishedWAL(t *testing.T, targetPath, receiptKind, requestID string) {
+	t.Helper()
+	requireNoSQLiteSidecars(t, targetPath)
+	db, err := Open(targetPath)
+	if err != nil {
+		t.Fatalf("reopen published store: %v", err)
+	}
+	var journalMode string
+	if err := db.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
+		db.Close()
+		t.Fatalf("read published journal mode: %v", err)
+	}
+	if journalMode != "wal" {
+		db.Close()
+		t.Fatalf("published journal_mode = %q, want wal", journalMode)
+	}
+	tasks, err := db.ListTasks("main")
+	if err != nil || len(tasks) != 2 {
+		db.Close()
+		t.Fatalf("published tasks = %v, %v; want 2", tasks, err)
+	}
+	receipt, err := db.FindReceipt(receiptKind, requestID)
+	if err != nil || receipt == nil {
+		db.Close()
+		t.Fatalf("published %s receipt = %v, %v", receiptKind, receipt, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close published store: %v", err)
+	}
+	requireNoSQLiteSidecars(t, targetPath)
+}
+
+func requireNoSQLiteSidecars(t *testing.T, targetPath string) {
+	t.Helper()
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Lstat(targetPath + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("published sidecar %s: %v", targetPath+suffix, err)
+		}
+	}
+}
+
+func TestRestorePublishesPersistentWAL(t *testing.T) {
+	for _, overwrite := range []bool{false, true} {
+		name := "absent target"
+		if overwrite {
+			name = "overwrite"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			target, bundle := restoreFixture(t, dir)
+			if !overwrite {
+				target = filepath.Join(dir, "restored", "noise-tasks", StoreFile)
+			}
+			requestID := "wal-restore"
+			if _, err := Restore(bundle, target, RestoreOptions{
+				Overwrite: overwrite, RequestID: requestID, OwnerBoundary: dir,
+			}); err != nil {
+				t.Fatalf("restore: %v", err)
+			}
+			requirePublishedWAL(t, target, ReceiptKindRestore, requestID)
+		})
+	}
+}
+
 func TestBackupVerifyRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	source := newBackupStore(t, filepath.Join(dir, "src"), dir)
@@ -188,37 +252,14 @@ func addBackupRun(t *testing.T, db *DB) {
 	if task.Claim == nil {
 		t.Fatal("run fixture task has no claim")
 	}
-	claimID := claimAcquisitionID(task.Claim)
-	if !validAcquisitionID(claimID) {
-		t.Fatalf("run fixture claim acquisition id = %q", claimID)
+	if _, _, err := db.StartRun("main", "1", "agent-a", task.Claim.Token, "run.start", 900); err != nil {
+		t.Fatalf("start run fixture: %v", err)
 	}
-	if err := db.immediate(func(tx *tx) error {
-		attemptToken, err := tx.nextFence()
-		if err != nil {
-			return err
-		}
-		res, err := tx.Exec(`INSERT INTO runs(
-			tag, task_id, owner, claim_acquisition_id, claim_token, status,
-			current_attempt, start_request_id, started_at, updated_at, extra
-		) VALUES ('main','1','agent-a',?,?, 'running',1,'run.start',?,?,?)`,
-			claimID, task.Claim.Token, "2026-08-28T17:45:00Z", "2026-08-28T17:45:00Z", `{"run-note":true}`)
-		if err != nil {
-			return err
-		}
-		runID, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(`INSERT INTO attempts(
-			run_id, attempt_no, acquisition_id, attempt_token, status,
-			ttl_seconds, lease_generation, created_request_id, started_at,
-			expires_at, updated_at, extra
-		) VALUES (?,1,'11223344556677889900aabbccddeeff',?,'running',900,1,
-			'run.start',?,?,?,?)`, runID, attemptToken, "2026-08-28T17:45:00Z",
-			"2026-08-28T18:00:00Z", "2026-08-28T17:45:00Z", `{"attempt-note":true}`)
-		return err
-	}); err != nil {
-		t.Fatalf("insert run fixture: %v", err)
+	if _, err := db.db.Exec(`UPDATE runs SET extra='{"run-note":true}' WHERE run_id=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.Exec(`UPDATE attempts SET extra='{"attempt-note":true}' WHERE run_id=1 AND attempt_no=1`); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -55,3 +55,18 @@ func LockShared(storeDir string) (release func(), err error) {
 		f.Close()
 	}, nil
 }
+
+func lockCreators(storeDir string) (release func(), err error) {
+	f, err := os.Open(storeDir)
+	if err != nil {
+		return nil, fmt.Errorf("open task store creation lock %s: %w", storeDir, err)
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("acquire task store creation lock: %w", err)
+	}
+	return func() {
+		unix.Flock(int(f.Fd()), unix.LOCK_UN)
+		f.Close()
+	}, nil
+}

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -698,14 +699,20 @@ var worktreeKnownKeys = map[string]bool{
 	"path": true, "boundary": true, "branch": true, "createdAt": true, "keep": true,
 }
 
+type legacySubtaskSet struct {
+	byID    map[string]*backlog.Subtask
+	ordered []*backlog.Subtask
+}
+
 // validateLegacyGraph enforces the per-tag invariants a valid legacy store
-// carries: unique task ids, nextId above every allocated id, milestone
-// references resolving against the tag registry, dependency references that
-// exist (top-level or subtask), and no dependency cycles.
+// carries: unique task and per-parent subtask ids, nextId above every allocated
+// task id, milestone references resolving against the tag registry, dependency
+// references that exist (top-level or subtask), and no dependency cycles.
 func validateLegacyGraph(snap *legacySnapshot) error {
 	for _, name := range snap.tagName {
 		entry := snap.tags[name]
 		ids := map[string]bool{}
+		subtasks := map[string]legacySubtaskSet{}
 		maxID := 0
 		for _, task := range entry.tasks {
 			if ids[task.ID] {
@@ -715,6 +722,41 @@ func validateLegacyGraph(snap *legacySnapshot) error {
 			if n, err := strconv.Atoi(task.ID); err == nil && n > maxID {
 				maxID = n
 			}
+
+			var rawSubtasks []json.RawMessage
+			if err := json.Unmarshal(task.Subtasks, &rawSubtasks); err != nil {
+				return legacyRefusalf("task %s subtasks in tag %q: %v", task.ID, name, err)
+			}
+			set := legacySubtaskSet{byID: map[string]*backlog.Subtask{}}
+			for i, raw := range rawSubtasks {
+				var fields struct {
+					Dependencies []json.RawMessage `json:"dependencies"`
+				}
+				if err := json.Unmarshal(raw, &fields); err != nil {
+					return legacyRefusalf("legacy tag %q task %s subtask %d: %v", name, task.ID, i, err)
+				}
+				for _, rawDependency := range fields.Dependencies {
+					var dependency string
+					if err := json.Unmarshal(rawDependency, &dependency); err == nil {
+						continue
+					}
+					var number json.Number
+					if err := json.Unmarshal(rawDependency, &number); err == nil && strings.Contains(number.String(), ".") {
+						return legacyRefusalf("legacy tag %q task %s subtask %d: qualified dependency %s must be a string", name, task.ID, i, number)
+					}
+				}
+				subtask, err := backlog.DecodeSubtask(task.ID, raw)
+				if err != nil {
+					return legacyRefusalf("legacy tag %q task %s subtask %d: %v", name, task.ID, i, err)
+				}
+				if set.byID[subtask.ID] != nil {
+					return legacyRefusalf("duplicate subtask id %q under task %s in tag %q", subtask.ID, task.ID, name)
+				}
+				set.byID[subtask.ID] = subtask
+				set.ordered = append(set.ordered, subtask)
+				ids[task.ID+"."+subtask.ID] = true
+			}
+			subtasks[task.ID] = set
 		}
 		if int(entry.nextID) <= maxID {
 			return legacyRefusalf("tag %q nextId %d is not above task id %d", name, entry.nextID, maxID)
@@ -745,14 +787,45 @@ func validateLegacyGraph(snap *legacySnapshot) error {
 				if err != nil {
 					return legacyRefusalf("task %s dependency %q in tag %q: %v", task.ID, dep, name, err)
 				}
-				parent, ok := snap.lookupTask(name, parentID)
-				if !ok {
+				if _, ok := snap.lookupTask(name, parentID); !ok {
 					return legacyRefusalf("task %s dependency %s does not exist in tag %q", task.ID, dep, name)
 				}
-				if subID != "" && !subtaskExists(parent, subID) {
-					return legacyRefusalf("task %s dependency %s does not exist in tag %q", task.ID, dep, name)
+				target := parentID
+				if subID != "" {
+					if subtasks[parentID].byID[subID] == nil {
+						return legacyRefusalf("task %s dependency %s does not exist in tag %q", task.ID, dep, name)
+					}
+					target = parentID + "." + subID
 				}
-				edges[task.ID] = append(edges[task.ID], parentID)
+				edges[task.ID] = append(edges[task.ID], target)
+			}
+			for _, subtask := range subtasks[task.ID].ordered {
+				source := task.ID + "." + subtask.ID
+				seenDependencies := map[string]bool{}
+				for _, dep := range subtask.Dependencies {
+					parentID, subID, err := backlog.ParseTaskReference(dep)
+					if err != nil {
+						return legacyRefusalf("subtask %s dependency %q in tag %q: %v", source, dep, name, err)
+					}
+					targetParent := parentID
+					targetSub := subID
+					if subID == "" {
+						targetParent = task.ID
+						targetSub = parentID
+					}
+					target := targetParent + "." + targetSub
+					if target == source {
+						return legacyRefusalf("subtask %s depends on itself in tag %q", source, name)
+					}
+					if seenDependencies[target] {
+						return legacyRefusalf("subtask %s has duplicate dependency %q in tag %q", source, dep, name)
+					}
+					seenDependencies[target] = true
+					if subtasks[targetParent].byID[targetSub] == nil {
+						return legacyRefusalf("subtask %s dependency %s does not exist in tag %q", source, dep, name)
+					}
+					edges[source] = append(edges[source], target)
+				}
 			}
 		}
 		if err := checkAcyclic(ids, edges); err != nil {
@@ -773,23 +846,6 @@ func (s *legacySnapshot) lookupTask(tag, id string) (*Task, bool) {
 		}
 	}
 	return nil, false
-}
-
-func subtaskExists(parent *Task, subID string) bool {
-	subs, err := decodeJSONArray(parent.Subtasks)
-	if err != nil {
-		return false
-	}
-	for _, sub := range subs {
-		obj, ok := sub.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id, ok := obj["id"].(json.Number); ok && id.String() == subID {
-			return true
-		}
-	}
-	return false
 }
 
 func checkAcyclic(ids map[string]bool, edges map[string][]string) error {

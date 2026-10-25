@@ -156,6 +156,19 @@ func TestPreflightWorktreeProvisionRefusals(t *testing.T) {
 	}
 }
 
+func TestPreflightWorktreeProvisionHistoricalTagReplay(t *testing.T) {
+	_, repo, opts := provisionHostFixture(t, "wt.host.tag-grammar")
+	for _, tag := range []string{"feature+1", "café", strings.Repeat("a", 65)} {
+		if _, err := PreflightWorktreeProvision(repo, repo, tag, "1", false, opts.BaseCommit); err == nil {
+			t.Errorf("fresh tag %q accepted", tag)
+		}
+		identity, err := PreflightWorktreeProvision(repo, repo, tag, "1", true, opts.BaseCommit)
+		if err != nil || identity.Branch != WorktreeBranch(tag, "1") {
+			t.Errorf("reserved tag %q identity = %+v, %v", tag, identity, err)
+		}
+	}
+}
+
 func TestEffectWorktreeProvisionBindsAndReplaysIdempotently(t *testing.T) {
 	db, repo, opts := provisionHostFixture(t, "wt.host.effect")
 	plan, err := db.PlanWorktreeProvision(opts)

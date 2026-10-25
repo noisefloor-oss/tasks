@@ -199,6 +199,12 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	target, _ := store.Path(boundary)
+	if err := migrationJournalGate(target); err != nil {
+		return fail(stderr, err)
+	}
+	if err := outsideGitRehomingGate(boundary); err != nil {
+		return fail(stderr, err)
+	}
 	owner, err := derivedOwnerBoundary(boundary)
 	if err != nil {
 		return fail(stderr, err)

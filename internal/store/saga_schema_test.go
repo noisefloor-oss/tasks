@@ -357,7 +357,7 @@ func TestWorktreeSagaLegacyReachableStateOnly(t *testing.T) {
 				t.Fatalf("validation=%v valid=%v", err, tc.valid)
 			}
 			if tc.name == "generation-zero cleanup" {
-				if _, err := db.db.Exec(`UPDATE worktree_sagas SET updated_at='2026-08-29T00:00:01Z' WHERE saga_id=1`); err != nil {
+				if _, err := db.db.Exec(`UPDATE worktree_sagas SET updated_at=strftime('%Y-%m-%dT%H:%M:%SZ',created_at,'+1 second') WHERE saga_id=1`); err != nil {
 					t.Fatal(err)
 				}
 				if err := db.ValidateWorktreeSagaState(); err == nil || !strings.Contains(err.Error(), "legacy identity") {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/noisefloor-oss/tasks/internal/backlog"
+	"github.com/noisefloor-oss/tasks/internal/worktreeid"
 )
 
 // §9 task-bound worktree lifecycle. The git operations and binding mutations
@@ -80,9 +81,16 @@ func canonicalPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// checkWorktreeTag enforces the §9.1 slash-tag refusal (exit 2).
+// checkWorktreeTag enforces the §9.4 fresh-provision tag grammar (exit 2).
 func checkWorktreeTag(tag string) error {
-	if strings.Contains(tag, "/") {
+	if !worktreeid.ValidTag(tag) {
+		return &WorktreeUsageError{Message: fmt.Sprintf("tag %s cannot name a worktree", tag)}
+	}
+	return nil
+}
+
+func checkHistoricalWorktreeTag(tag string) error {
+	if !worktreeid.ValidHistoricalTag(tag) {
 		return &WorktreeUsageError{Message: fmt.Sprintf("tag %s cannot name a worktree", tag)}
 	}
 	return nil
@@ -592,7 +600,7 @@ func (d *DB) RemoveWorktree(boundary, tag, id string, force bool) (string, error
 	boundary = canonicalPath(boundary)
 	var path string
 	err := d.immediate(func(t *tx) error {
-		if err := checkWorktreeTag(tag); err != nil {
+		if err := checkHistoricalWorktreeTag(tag); err != nil {
 			return err
 		}
 		if err := checkWorktreeID(tag, id); err != nil {

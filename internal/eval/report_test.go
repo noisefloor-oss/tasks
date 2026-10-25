@@ -102,6 +102,27 @@ func TestBuildReportHandlesExpectedRefusalOutsideGenerationMetrics(t *testing.T)
 	}
 }
 
+func TestBuildReportRejectsInconsistentDispositionOutcome(t *testing.T) {
+	tests := []struct {
+		outcome     string
+		disposition string
+	}{
+		{outcome: "success", disposition: "refuse"},
+		{outcome: "refusal", disposition: "generate"},
+		{outcome: "refusal", disposition: "warn"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.outcome+" with "+tc.disposition, func(t *testing.T) {
+			corpus := validCorpus(t)
+			bundle := validRunBundle(t, corpus, "development")
+			setRunOutcome(&bundle.Runs[0], tc.outcome, tc.disposition)
+			if _, err := BuildReport(corpus, bundle); err == nil || !strings.Contains(err.Error(), "conflicts with outcome") {
+				t.Fatalf("BuildReport error = %v, want disposition/outcome conflict", err)
+			}
+		})
+	}
+}
+
 func TestBuildReportSurfacesTaskQualityLabels(t *testing.T) {
 	corpus := validCorpus(t)
 	bundle := validRunBundle(t, corpus, "development")

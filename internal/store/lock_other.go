@@ -22,3 +22,7 @@ func LockExclusive(storeDir string) (func(), error) {
 func LockShared(storeDir string) (func(), error) {
 	return func() {}, nil
 }
+
+func lockCreators(string) (func(), error) {
+	return func() {}, nil
+}

@@ -338,6 +338,62 @@ func TestSetupFailureBoundariesRestorePriorInstallation(t *testing.T) {
 	}
 }
 
+func TestSetupRollbackFailuresPreserveCompleteRootAndAllowRetry(t *testing.T) {
+	for _, withPrior := range []bool{false, true} {
+		name := "without-prior"
+		if withPrior {
+			name = "with-prior"
+		}
+		for _, point := range []string{"rollback-before-restore", "rollback-after-restore"} {
+			t.Run(name+"/"+point, func(t *testing.T) {
+				f := newFixture(t, "", "")
+				var prior string
+				var body []byte
+				if withPrior {
+					prior, body = seedWithNormalBinary(t, f)
+				}
+				f.bin = buildFaultVariant(t, f, "fail:swapped", "", "fail:"+point)
+				out, err := f.run(f.stage(".noise-stage-next", "next"))
+				if err == nil {
+					t.Fatalf("rollback failure point accepted\n%s", out)
+				}
+				if !bytes.Contains(out, []byte("rollback failed")) {
+					t.Fatalf("rollback failure not reported: %s", out)
+				}
+
+				link, readErr := os.Readlink(f.root)
+				switch {
+				case point == "rollback-before-restore":
+					if readErr != nil {
+						t.Fatalf("new root is not intact: %v", readErr)
+					}
+					got, err := os.ReadFile(filepath.Join(f.parent, link, "noise-tasks"))
+					if err != nil || string(got) != "next" {
+						t.Fatalf("new root body = %q, %v", got, err)
+					}
+				case withPrior:
+					if readErr != nil || link != prior {
+						t.Fatalf("prior root was not restored: %q, %v", link, readErr)
+					}
+					f.assertPrior(prior, body)
+				case !os.IsNotExist(readErr):
+					t.Fatalf("root remains after no-prior restoration: %q, %v", link, readErr)
+				}
+
+				f.bin = buildVariant(t, f, "", "")
+				out, err = f.run(f.stage(".noise-stage-retry", "retry"))
+				if err != nil {
+					t.Fatalf("setup retry failed: %v\n%s", err, out)
+				}
+				got, err := os.ReadFile(filepath.Join(f.root, "noise-tasks"))
+				if err != nil || string(got) != "retry" {
+					t.Fatalf("retry root body = %q, %v", got, err)
+				}
+			})
+		}
+	}
+}
+
 func TestSetupCrashBoundariesAreAtomic(t *testing.T) {
 	for _, tc := range []struct{ point, want string }{{"versioned", "old"}, {"swapped", "next"}} {
 		t.Run(tc.point, func(t *testing.T) {
@@ -411,10 +467,18 @@ func seedWithNormalBinary(t *testing.T, f *fixture) (string, []byte) {
 }
 func buildVariant(t *testing.T, f *fixture, point, filesystem string) string {
 	t.Helper()
+	return buildFaultVariant(t, f, point, filesystem, "")
+}
+
+func buildFaultVariant(t *testing.T, f *fixture, point, filesystem, rollbackPoint string) string {
+	t.Helper()
 	out := filepath.Join(f.base, "setup-"+strconv.FormatInt(time.Now().UnixNano(), 10))
 	ld := []string{"-X", module + "/internal/libexec.Root=" + f.root, "-X", module + "/internal/setup.TestRoot=" + f.base}
 	if point != "" {
 		ld = append(ld, "-X", module+"/internal/setup.TestPoint="+point)
+	}
+	if rollbackPoint != "" {
+		ld = append(ld, "-X", module+"/internal/setup.TestRollbackPoint="+rollbackPoint)
 	}
 	ld = append(ld, "-X", module+"/internal/setup.TestFilesystem="+fixtureFilesystem(filesystem))
 	cmd := exec.Command("go", "build", "-ldflags", strings.Join(ld, " "), "-o", out, ".")

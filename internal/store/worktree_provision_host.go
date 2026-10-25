@@ -50,7 +50,11 @@ func PreflightWorktreeProvision(boundary, ownerBoundary, tag, taskID string, res
 	if info, err := os.Stat(ownerBoundary); err != nil || !info.IsDir() {
 		return nil, &WorktreeOwnerBoundaryUnavailable{Path: ownerBoundary}
 	}
-	if err := checkWorktreeTag(tag); err != nil {
+	if reserved {
+		if err := checkHistoricalWorktreeTag(tag); err != nil {
+			return nil, err
+		}
+	} else if err := checkWorktreeTag(tag); err != nil {
 		return nil, err
 	}
 	if err := checkWorktreeID(tag, taskID); err != nil {
@@ -278,6 +282,12 @@ func compensateWorktreeProvision(boundary string, plan *WorktreeProvisionPlan) (
 		return false, false, nil
 	} else if registered {
 		admin, aerr := worktreeAdminDir(boundary, plan.TargetPath)
+		if _, terr := os.Lstat(plan.TargetPath); errors.Is(aerr, os.ErrNotExist) && os.IsNotExist(terr) {
+			admin, aerr = findWorktreeAdmin(plan.RegistrationRoot, plan.TargetPath, plan.SagaID)
+			if aerr == nil && admin == "" {
+				aerr = fmt.Errorf("worktree registration is unavailable for %s", plan.TargetPath)
+			}
+		}
 		if aerr != nil {
 			return false, false, nil
 		}

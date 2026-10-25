@@ -154,6 +154,15 @@ func cmdMigrateApply(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
+	recovery, err := store.ReadMigrationRecovery(filepath.Join(commonCanon, "noise-tasks"))
+	if err != nil {
+		return fail(stderr, fmt.Errorf("invalid migration recovery journal: %w", err))
+	}
+	if recovery != store.RecoveryRequired {
+		if err := outsideGitRehomingGate(boundary); err != nil {
+			return fail(stderr, err)
+		}
+	}
 	result, err := store.ApplyMigration(fs.Arg(0), commonCanon, owner, store.ApplyOptions{
 		RequestID:  requestID,
 		PlanDigest: digest,

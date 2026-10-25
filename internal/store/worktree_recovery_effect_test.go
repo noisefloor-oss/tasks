@@ -505,6 +505,65 @@ func TestReconcileWorktreeRecoveryProvisionCleanupRequired(t *testing.T) {
 			t.Fatalf("validate proved cleanup recovery = %v", err)
 		}
 	})
+	t.Run("deleted target recovers through registration backref", func(t *testing.T) {
+		db, repo, opts := provisionHostFixture(t, "wt.rec.cleanup.deleted-target")
+		plan, err := db.PlanWorktreeProvision(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		git(t, repo, "worktree", "add", "-b", plan.Branch, plan.TargetPath, plan.BaseCommit)
+		admin, err := worktreeAdminDir(repo, plan.TargetPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.FinalizeWorktreeProvision(plan, WorktreeProvisionCleanupRequired); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.RemoveAll(plan.TargetPath); err != nil {
+			t.Fatal(err)
+		}
+		if registered, err := worktreeRegistered(repo, plan.TargetPath); err != nil || !registered {
+			t.Fatalf("dangling registration before recovery = %v, %v", registered, err)
+		}
+		unrecognized := filepath.Join(plan.RegistrationRoot, "unrecognized")
+		if err := os.Mkdir(unrecognized, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		first, err := recoveryReconcile(t, db, repo, plan.SagaID, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first.Result.Status != "failed" || first.Result.RecoveryGeneration != 1 {
+			t.Fatalf("first recovery after target deletion = %+v", first.Result)
+		}
+		second, err := db.RecoverWorktreeSaga(recoveryOptions(t, db, plan.SagaID, 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if second.EffectRequired || second.Result == nil || second.Result.Status != "failed" ||
+			second.Result.RecoveryGeneration != 1 {
+			t.Fatalf("second recovery after target deletion = %+v", second)
+		}
+		if _, err := os.Lstat(plan.TargetPath); !os.IsNotExist(err) {
+			t.Fatalf("target after recovery: %v", err)
+		}
+		if _, err := os.Lstat(admin); !os.IsNotExist(err) {
+			t.Fatalf("admin registration after recovery: %v", err)
+		}
+		if registered, err := worktreeRegistered(repo, plan.TargetPath); err != nil || registered {
+			t.Fatalf("registration after recovery = %v, %v", registered, err)
+		}
+		if exists, err := worktreeBranchExists(repo, plan.Branch); err != nil || exists {
+			t.Fatalf("base-guarded branch after recovery exists=%v err=%v", exists, err)
+		}
+		if info, err := os.Lstat(unrecognized); err != nil || !info.IsDir() {
+			t.Fatalf("unrecognized registration entry was disturbed: %v, %v", info, err)
+		}
+		if err := db.ValidateWorktreeSagaState(); err != nil {
+			t.Fatalf("validate deleted-target recovery = %v", err)
+		}
+	})
 	t.Run("unproved commits nothing", func(t *testing.T) {
 		db, repo, opts := provisionHostFixture(t, "wt.rec.cleanup.unproved")
 		plan, err := db.PlanWorktreeProvision(opts)

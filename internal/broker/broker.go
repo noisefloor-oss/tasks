@@ -38,7 +38,6 @@ const (
 	maxSagaFence   = 128
 	maxPathBytes   = 4096
 	maxBranchByte  = 200
-	maxTagBytes    = 64
 	maxCommitBytes = 64
 	maxCapability  = 64 * 1024
 	// MaxReason bounds every sanitized refusal reason.

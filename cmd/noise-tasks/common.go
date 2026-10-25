@@ -14,12 +14,30 @@ import (
 	"github.com/noisefloor-oss/tasks/internal/store"
 )
 
-// Diagnostics fixed by SPEC §2 and §8.7 (exit 1, stderr, empty stdout).
+// Diagnostics fixed by SPEC §2, §8.1, and §8.7 (exit 1, stderr, empty stdout).
 var (
 	errProjectNotInitialized = errors.New("project is not initialized; run noise tasks setup")
 	errLegacyJSONStore       = errors.New("legacy live store found; create a verified backup and run noise tasks migrate plan")
 	errMigrationRecovery     = errors.New("migration recovery required; rerun noise tasks migrate apply with the original plan and backup")
+	errOutsideGitRehoming    = errors.New("existing outside-Git task store cannot be rehomed automatically; back it up and restore it into this repository family")
 )
+
+// outsideGitRehomingGate refuses to switch from an existing fallback store to
+// a newly discovered Git authority (§8.1). Non-regular entries and inspection
+// failures fail closed without following or replacing them.
+func outsideGitRehomingGate(boundary string) error {
+	if _, inGit := store.Path(boundary); !inGit {
+		return nil
+	}
+	info, err := statRegular(filepath.Join(boundary, ".tasks", "tasks.sqlite"))
+	if err != nil {
+		return err
+	}
+	if info != nil {
+		return errOutsideGitRehoming
+	}
+	return nil
+}
 
 // migrationJournalGate enforces the §2/§8.7 journal fencing for one derived
 // store path: a malformed journal fails closed as an operational failure, a
@@ -142,6 +160,9 @@ func openProjectStoreAt(boundary string) (*projectStore, error) {
 	if err := migrationJournalGate(path); err != nil {
 		return nil, err
 	}
+	if err := outsideGitRehomingGate(boundary); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if legacy, lerr := os.Lstat(filepath.Join(filepath.Dir(path), store.LegacyFile)); lerr == nil && legacy.Mode().IsRegular() {
@@ -199,14 +220,15 @@ func resolveStoreTag(cf *commonFlags) (*projectStore, string, error) {
 	return ps, tag, nil
 }
 
-// fixturePath resolves the explicit --file fixture document. It is an
-// ordinary file error when missing, never project onboarding guidance (§2).
+// fixturePath resolves the explicit --file fixture document without following
+// a symlink at its final component. It is an ordinary file error when missing,
+// never project onboarding guidance (§2).
 func fixturePath(file string) (string, error) {
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	if err != nil {
 		return "", fmt.Errorf("backlog file not found: %s", abs)
 	}

@@ -14,18 +14,26 @@ import (
 
 func provisionFixture(t *testing.T, requestID string) (*DB, WorktreeProvisionOptions, *Claim, *RunStartResult) {
 	t.Helper()
+	return provisionFixtureForTag(t, requestID, "main")
+}
+
+func provisionFixtureForTag(t *testing.T, requestID, tag string) (*DB, WorktreeProvisionOptions, *Claim, *RunStartResult) {
+	t.Helper()
 	db, _ := newDB(t)
+	if err := db.EnsureTag(tag); err != nil {
+		t.Fatal(err)
+	}
 	// Keep capabilities distinguishable from ordinary ids/counts when the
 	// redaction assertions inspect durable JSON.
 	if _, err := db.db.Exec(`UPDATE meta SET value='900000000000000000' WHERE key='fencing'`); err != nil {
 		t.Fatal(err)
 	}
-	id := addTask(t, db, "main", "provision")
-	claim, _, _, err := db.AcquireClaim("main", id, "agent-a", 3600, "claim."+requestID)
+	id := addTask(t, db, tag, "provision")
+	claim, _, _, err := db.AcquireClaim(tag, id, "agent-a", 3600, "claim."+requestID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, replayed, err := db.StartRun("main", id, "agent-a", claim.Token, "run."+requestID, 3600)
+	run, replayed, err := db.StartRun(tag, id, "agent-a", claim.Token, "run."+requestID, 3600)
 	if err != nil || replayed {
 		t.Fatalf("start run = %+v replayed=%v err=%v", run, replayed, err)
 	}
@@ -37,8 +45,8 @@ func provisionFixture(t *testing.T, requestID string) (*DB, WorktreeProvisionOpt
 		RunID: run.RunID, Owner: "agent-a", ClaimToken: claim.Token,
 		Attempt: run.Attempt, AttemptToken: run.AttemptToken, RequestID: requestID,
 		OwnerBoundary: boundary, RegistrationRoot: filepath.Join(boundary, ".git", "worktrees"),
-		TargetPath: filepath.Join(boundary, ".worktrees", WorktreeName("main", id)),
-		Branch:     WorktreeBranch("main", id), BaseCommit: strings.Repeat("a", 40),
+		TargetPath: filepath.Join(boundary, ".worktrees", WorktreeName(tag, id)),
+		Branch:     WorktreeBranch(tag, id), BaseCommit: strings.Repeat("a", 40),
 	}, claim, run
 }
 
@@ -68,6 +76,94 @@ func TestWorktreeProvisionDigestAndIDVectors(t *testing.T) {
 	wantJSON := `{"sagaId":3,"operation":"provision","status":"needs-broker","runId":7,"ownerBoundary":"/repo","path":"/repo/.worktrees/main-9","branch":"tasks/main/9","baseCommit":"` + base + `","sagaToken":44,"recoveryGeneration":0,"recoverRequestId":"` + recoverID + `","brokerRequest":{"familyId":"family","verb":"create","registrationRoot":"/repo/.git/worktrees","ownerBoundary":"/repo","targetPath":"/repo/.worktrees/main-9","branch":"tasks/main/9","baseCommit":"` + base + `","force":false,"recoverRequestId":"` + recoverID + `"}}`
 	if err != nil || string(encoded) != wantJSON {
 		t.Fatalf("mutation JSON = %s, %v; want %s", encoded, err, wantJSON)
+	}
+}
+
+func TestPlanWorktreeProvisionFreshTagGrammar(t *testing.T) {
+	for _, tag := range []string{"main", strings.Repeat("a", 64)} {
+		t.Run("accept "+tag, func(t *testing.T) {
+			db, opts, _, _ := provisionFixtureForTag(t, "wt.valid-tag", tag)
+			plan, err := db.PlanWorktreeProvision(opts)
+			if err != nil || plan == nil || !plan.EffectRequired {
+				t.Fatalf("valid tag plan = %+v, %v", plan, err)
+			}
+		})
+	}
+	for _, tag := range []string{"", "feature+1", "café", strings.Repeat("a", 65), "a/b"} {
+		t.Run("refuse "+tag, func(t *testing.T) {
+			db, opts, _, _ := provisionFixtureForTag(t, "wt.invalid-tag", tag)
+			_, err := db.PlanWorktreeProvision(opts)
+			var usage *WorktreeUsageError
+			if !errors.As(err, &usage) {
+				t.Fatalf("invalid tag error = %v", err)
+			}
+			var sagas int
+			if err := db.db.QueryRow(`SELECT COUNT(*) FROM worktree_sagas`).Scan(&sagas); err != nil || sagas != 0 {
+				t.Fatalf("sagas after invalid tag = %d, %v", sagas, err)
+			}
+		})
+	}
+}
+
+func TestPlanWorktreeProvisionHistoricalTagReplayAndRecovery(t *testing.T) {
+	for _, tag := range []string{"feature+1", "café", strings.Repeat("a", 65)} {
+		t.Run(tag, func(t *testing.T) {
+			db, opts, _, _ := provisionFixture(t, "wt.historical-tag")
+			plan, err := db.PlanWorktreeProvision(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.FinalizeWorktreeProvision(plan, WorktreeProvisionNeedsBroker); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.EnsureTag(tag); err != nil {
+				t.Fatal(err)
+			}
+
+			tx, err := db.db.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if _, err := tx.Exec(`PRAGMA defer_foreign_keys=ON`); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(opts.OwnerBoundary, ".worktrees", WorktreeName(tag, plan.Task))
+			branch := WorktreeBranch(tag, plan.Task)
+			for _, query := range []string{
+				`UPDATE tasks SET tag=? WHERE tag='main' AND id=?`,
+				`UPDATE runs SET tag=? WHERE tag='main' AND task_id=?`,
+				`UPDATE worktree_sagas SET tag=?,target_path=?,branch=? WHERE saga_id=?`,
+			} {
+				var args []any
+				if query == `UPDATE worktree_sagas SET tag=?,target_path=?,branch=? WHERE saga_id=?` {
+					args = []any{tag, target, branch, plan.SagaID}
+				} else {
+					args = []any{tag, plan.Task}
+				}
+				if _, err := tx.Exec(query, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+
+			opts.TargetPath, opts.Branch = target, branch
+			replay, err := db.PlanWorktreeProvision(opts)
+			if err != nil || replay.EffectRequired || replay.Result == nil || replay.Result.Status != "needs-broker" || replay.Tag != tag {
+				t.Fatalf("historical replay = %+v, %v", replay, err)
+			}
+			if replay.Result.RecoverRequestID == nil {
+				t.Fatal("historical replay has no recovery request")
+			}
+			attempt, err := db.RecoverWorktreeSaga(WorktreeRecoveryOptions{
+				SagaID: plan.SagaID, SagaToken: plan.SagaToken, RequestID: *replay.Result.RecoverRequestID,
+			})
+			if err != nil || !attempt.EffectRequired || attempt.Tag != tag || attempt.Branch != branch {
+				t.Fatalf("historical recovery = %+v, %v", attempt, err)
+			}
+		})
 	}
 }
 
