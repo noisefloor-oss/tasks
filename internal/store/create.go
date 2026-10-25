@@ -39,6 +39,38 @@ func CreateWithOwner(path, ownerBoundary string) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create task store directory: %w", err)
 	}
+	releaseCreators, err := lockCreators(dir)
+	if err != nil {
+		return nil, err
+	}
+	creatorLocked := true
+	defer func() {
+		if creatorLocked {
+			releaseCreators()
+		}
+	}()
+	info, err = os.Lstat(path)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("create task store %s: not a regular file", path)
+		}
+		return nil, &storeExistsError{path}
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	// Target sidecars may be removed only before any shared-lock creator can
+	// publish. A creator that cannot take the maintenance-exclusive lock skips
+	// cleanup: the shared-lock holder already passed its cleanup point. The
+	// creation lock keeps contenders from falling into the exclusive-to-shared
+	// transition, and the no-replace rename still decides the winner.
+	if release, err := LockExclusive(dir); err == nil {
+		cleanupErr := removeSQLiteSidecars(path)
+		release()
+		if cleanupErr != nil {
+			return nil, cleanupErr
+		}
+	}
 	// One shared maintenance lock spans the whole creation: staging, the
 	// no-replace publication, the directory fsync, and the returned handle's
 	// lifetime (Close releases it). An exclusive offline holder can never
@@ -48,6 +80,8 @@ func CreateWithOwner(path, ownerBoundary string) (*DB, error) {
 	// double-lock gap between closing the staged handle and opening the
 	// published authority.
 	unlock, err := LockShared(dir)
+	releaseCreators()
+	creatorLocked = false
 	if err != nil {
 		return nil, err
 	}
@@ -132,4 +166,13 @@ func CreateWithOwner(path, ownerBoundary string) (*DB, error) {
 		return nil, err
 	}
 	return target, nil
+}
+
+func removeSQLiteSidecars(path string) error {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }

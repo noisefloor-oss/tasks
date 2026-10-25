@@ -36,6 +36,28 @@ func TestRemoveTopLevelRefusesAnyRunHistoryEvenWithForce(t *testing.T) {
 	}
 }
 
+func TestRemoveAssignedTaskRetainsRunHistoryConflict(t *testing.T) {
+	db := orchestratorDB(t)
+	p := mustOrchestratorPlan(t, validOrchestratorPlan)
+	if _, err := db.ApplyOrchestratorPlan(p, p.Digest, "req-assigned-run"); err != nil {
+		t.Fatal(err)
+	}
+	claim, _, _, err := db.AcquireClaim("main", "2", "agent-a", 3600, "claim.assigned-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.StartRun("main", "2", "agent-a", claim.Token, "run.assigned", 300); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RemoveTask("main", "2", 1, true, nil); !errors.As(err, new(*RunConflict)) {
+		t.Fatalf("assigned run-history removal=%v", err)
+	}
+	var assignments int
+	if err := db.db.QueryRow(`SELECT COUNT(*) FROM assignments WHERE tag='main' AND task_id='2'`).Scan(&assignments); err != nil || assignments != 1 {
+		t.Fatalf("assignments after conflict=%d err=%v", assignments, err)
+	}
+}
+
 func TestRemoveSubtaskRequiresExactLiveRunGate(t *testing.T) {
 	db, id, exact := liveSubtaskStatusFixture(t)
 	if _, err := db.RemoveTask("main", id+".1", 1, false, nil); !errors.As(err, new(*RunConflict)) {

@@ -294,6 +294,70 @@ func (t *tx) runReceiptRefs(lineage runReadLineage) ([]RunReceiptRef, error) {
 	return result, nil
 }
 
+func readRun(t *tx, runID int64) (*RunRecord, error) {
+	var terminalAt, terminalDigest sql.NullString
+	var claimAcquisition, startRequest string
+	record := RunRecord{Attempts: []RunAttempt{}, Receipts: []RunReceiptRef{}}
+	err := t.QueryRow(`SELECT run_id,tag,task_id,owner,claim_acquisition_id,start_request_id,status,
+		current_attempt,started_at,updated_at,terminal_at,terminal_result_digest FROM runs WHERE run_id=?`, runID).Scan(&record.RunID,
+		&record.Tag, &record.Task, &record.Owner, &claimAcquisition, &startRequest, &record.Status, &record.CurrentAttempt,
+		&record.StartedAt, &record.UpdatedAt, &terminalAt, &terminalDigest)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read run %d: %w", runID, err)
+	}
+	record.TerminalAt = nullableStringPointer(terminalAt)
+	record.TerminalResultDigest = nullableStringPointer(terminalDigest)
+	lineage := runReadLineage{runID: runID, tag: record.Tag, task: record.Task, owner: record.Owner,
+		claimAcquisition: claimAcquisition, startRequest: startRequest, attempts: map[int64]runAttemptLineage{}}
+	rows, err := t.Query(`SELECT attempt_no,acquisition_id,created_request_id,status,ttl_seconds,lease_generation,
+		started_at,expires_at,updated_at,terminal_at,terminal_result_digest FROM attempts
+		WHERE run_id=? ORDER BY attempt_no`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("read run %d attempts: %w", runID, err)
+	}
+	for rows.Next() {
+		var attempt RunAttempt
+		var createdRequest string
+		var attemptTerminal, attemptDigest sql.NullString
+		if err := rows.Scan(&attempt.Attempt, &attempt.AcquisitionID, &createdRequest, &attempt.Status, &attempt.TTLSeconds,
+			&attempt.LeaseGeneration, &attempt.StartedAt, &attempt.ExpiresAt, &attempt.UpdatedAt,
+			&attemptTerminal, &attemptDigest); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		attempt.TerminalAt = nullableStringPointer(attemptTerminal)
+		attempt.TerminalResultDigest = nullableStringPointer(attemptDigest)
+		record.Attempts = append(record.Attempts, attempt)
+		lineage.attempts[attempt.Attempt] = runAttemptLineage{acquisitionID: attempt.AcquisitionID,
+			createdRequest: createdRequest, leaseGeneration: attempt.LeaseGeneration, expiresAt: attempt.ExpiresAt}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if len(record.Attempts) == 0 {
+		return nil, fmt.Errorf("run state invariant failed: run %d has no attempts", runID)
+	}
+	for i := range record.Attempts {
+		want := int64(i + 1)
+		if record.Attempts[i].Attempt != want {
+			return nil, fmt.Errorf("run state invariant failed: run %d attempt history is not contiguous", runID)
+		}
+	}
+	if record.Attempts[len(record.Attempts)-1].Attempt != record.CurrentAttempt {
+		return nil, fmt.Errorf("run state invariant failed: run %d current attempt is not the greatest attempt", runID)
+	}
+	record.Receipts, err = t.runReceiptRefs(lineage)
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
 // GetRun returns a token-free run history, or nil when runID is absent.
 func (d *DB) GetRun(runID int64) (*RunRecord, error) {
 	if runID <= 0 {
@@ -301,68 +365,9 @@ func (d *DB) GetRun(runID int64) (*RunRecord, error) {
 	}
 	var result *RunRecord
 	err := d.deferred(func(t *tx) error {
-		var terminalAt, terminalDigest sql.NullString
-		var claimAcquisition, startRequest string
-		record := RunRecord{Attempts: []RunAttempt{}, Receipts: []RunReceiptRef{}}
-		err := t.QueryRow(`SELECT run_id,tag,task_id,owner,claim_acquisition_id,start_request_id,status,
-			current_attempt,started_at,updated_at,terminal_at,terminal_result_digest FROM runs WHERE run_id=?`, runID).Scan(&record.RunID,
-			&record.Tag, &record.Task, &record.Owner, &claimAcquisition, &startRequest, &record.Status, &record.CurrentAttempt,
-			&record.StartedAt, &record.UpdatedAt, &terminalAt, &terminalDigest)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read run %d: %w", runID, err)
-		}
-		record.TerminalAt = nullableStringPointer(terminalAt)
-		record.TerminalResultDigest = nullableStringPointer(terminalDigest)
-		lineage := runReadLineage{runID: runID, tag: record.Tag, task: record.Task, owner: record.Owner,
-			claimAcquisition: claimAcquisition, startRequest: startRequest, attempts: map[int64]runAttemptLineage{}}
-		rows, err := t.Query(`SELECT attempt_no,acquisition_id,created_request_id,status,ttl_seconds,lease_generation,
-			started_at,expires_at,updated_at,terminal_at,terminal_result_digest FROM attempts
-			WHERE run_id=? ORDER BY attempt_no`, runID)
-		if err != nil {
-			return fmt.Errorf("read run %d attempts: %w", runID, err)
-		}
-		for rows.Next() {
-			var attempt RunAttempt
-			var createdRequest string
-			var attemptTerminal, attemptDigest sql.NullString
-			if err := rows.Scan(&attempt.Attempt, &attempt.AcquisitionID, &createdRequest, &attempt.Status, &attempt.TTLSeconds,
-				&attempt.LeaseGeneration, &attempt.StartedAt, &attempt.ExpiresAt, &attempt.UpdatedAt,
-				&attemptTerminal, &attemptDigest); err != nil {
-				rows.Close()
-				return err
-			}
-			attempt.TerminalAt = nullableStringPointer(attemptTerminal)
-			attempt.TerminalResultDigest = nullableStringPointer(attemptDigest)
-			record.Attempts = append(record.Attempts, attempt)
-			lineage.attempts[attempt.Attempt] = runAttemptLineage{acquisitionID: attempt.AcquisitionID,
-				createdRequest: createdRequest, leaseGeneration: attempt.LeaseGeneration, expiresAt: attempt.ExpiresAt}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		if len(record.Attempts) == 0 {
-			return fmt.Errorf("run state invariant failed: run %d has no attempts", runID)
-		}
-		for i := range record.Attempts {
-			want := int64(i + 1)
-			if record.Attempts[i].Attempt != want {
-				return fmt.Errorf("run state invariant failed: run %d attempt history is not contiguous", runID)
-			}
-		}
-		if record.Attempts[len(record.Attempts)-1].Attempt != record.CurrentAttempt {
-			return fmt.Errorf("run state invariant failed: run %d current attempt is not the greatest attempt", runID)
-		}
-		record.Receipts, err = t.runReceiptRefs(lineage)
-		if err != nil {
-			return err
-		}
-		result = &record
-		return nil
+		var err error
+		result, err = readRun(t, runID)
+		return err
 	})
 	return result, err
 }

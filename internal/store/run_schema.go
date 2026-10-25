@@ -37,6 +37,9 @@ func (d *DB) ValidateStore() error {
 	if err := d.ValidateRunState(); err != nil {
 		return err
 	}
+	if err := d.ValidateRunReceipts(); err != nil {
+		return err
+	}
 	if err := d.ValidateWorktreeSagaState(); err != nil {
 		return err
 	}
@@ -62,6 +65,86 @@ func (d *DB) ValidateRunState() error {
 		}
 		return validateRunState(t)
 	})
+}
+
+// ValidateRunReceipts checks every run lineage and every stored run receipt.
+// Older trusted catalogs have no physical run state and validate vacuously.
+func (d *DB) ValidateRunReceipts() error {
+	return d.deferred(func(t *tx) error {
+		var version int
+		if err := t.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+			return fmt.Errorf("read schema version for run receipt validation: %w", err)
+		}
+		if version < runSchemaVersion {
+			return nil
+		}
+		return validateRunReceipts(t)
+	})
+}
+
+func validateRunReceipts(t *tx) error {
+	rows, err := t.Query(`SELECT run_id FROM runs ORDER BY run_id`)
+	if err != nil {
+		return fmt.Errorf("list runs for receipt validation: %w", err)
+	}
+	var orderedRunIDs []int64
+	runIDs := map[int64]bool{}
+	for rows.Next() {
+		var runID int64
+		if err := rows.Scan(&runID); err != nil {
+			rows.Close()
+			return fmt.Errorf("read run for receipt validation: %w", err)
+		}
+		orderedRunIDs = append(orderedRunIDs, runID)
+		runIDs[runID] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("list runs for receipt validation: %w", err)
+	}
+	rows.Close()
+	for _, runID := range orderedRunIDs {
+		if _, err := readRun(t, runID); err != nil {
+			return fmt.Errorf("validate run %d receipts: %w", runID, err)
+		}
+	}
+
+	receiptRows, err := t.Query(`SELECT request_id FROM receipts WHERE kind=? ORDER BY request_id`, ReceiptKindRun)
+	if err != nil {
+		return fmt.Errorf("list run receipts for store validation: %w", err)
+	}
+	var requestIDs []string
+	for receiptRows.Next() {
+		var requestID sql.NullString
+		if err := receiptRows.Scan(&requestID); err != nil {
+			receiptRows.Close()
+			return fmt.Errorf("read run receipt for store validation: %w", err)
+		}
+		if !requestID.Valid {
+			receiptRows.Close()
+			return receiptIntegrityError(ReceiptKindRun)
+		}
+		requestIDs = append(requestIDs, requestID.String)
+	}
+	if err := receiptRows.Err(); err != nil {
+		receiptRows.Close()
+		return fmt.Errorf("list run receipts for store validation: %w", err)
+	}
+	receiptRows.Close()
+	for _, requestID := range requestIDs {
+		receipt, err := t.findVerifiedReceipt(ReceiptKindRun, requestID)
+		if err != nil {
+			return err
+		}
+		if receipt == nil {
+			return receiptIntegrityError(ReceiptKindRun)
+		}
+		runID, ok := receiptInt64(receipt["runId"])
+		if !ok || !runIDs[runID] {
+			return fmt.Errorf("validate run receipt %q: %w", requestID, receiptIntegrityError(ReceiptKindRun))
+		}
+	}
+	return nil
 }
 
 func validateRunState(t *tx) error {

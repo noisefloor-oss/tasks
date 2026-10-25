@@ -56,6 +56,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		if err := migrationProjectGate(boundary, path); err != nil {
 			return fail(stderr, err)
 		}
+		if err := outsideGitRehomingGate(boundary); err != nil {
+			return fail(stderr, err)
+		}
 		if legacy := legacyStorePresent(path); legacy {
 			return fail(stderr, errLegacyJSONStore)
 		}

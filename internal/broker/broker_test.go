@@ -148,6 +148,40 @@ func TestValidateBindingsRefusals(t *testing.T) {
 	}
 }
 
+func TestValidateBindingsHistoricalTagCompatibility(t *testing.T) {
+	for _, tag := range []string{
+		"feature+1",
+		"café",
+		strings.Repeat("a", 64),
+		strings.Repeat("a", 65),
+		strings.Repeat("a", 191),
+	} {
+		cap := validCap()
+		cap.Branch = "tasks/" + tag + "/42"
+		cap.Target = "/repo/.worktrees/" + tag + "-42"
+		if len(cap.Branch) > maxBranchByte {
+			t.Fatalf("test branch exceeds boundary: %d", len(cap.Branch))
+		}
+		if err := cap.ValidateBindings(); err != nil {
+			t.Errorf("tag %q refused: %v", tag, err)
+			continue
+		}
+		if _, err := Mint(testKey(t), cap); err != nil {
+			t.Errorf("tag %q could not mint: %v", tag, err)
+		}
+	}
+
+	cap := validCap()
+	cap.Branch = "tasks/" + strings.Repeat("a", 192) + "/42"
+	cap.Target = "/repo/.worktrees/" + strings.Repeat("a", 192) + "-42"
+	if len(cap.Branch) != maxBranchByte+1 {
+		t.Fatalf("test branch length = %d", len(cap.Branch))
+	}
+	if err := cap.ValidateBindings(); err == nil {
+		t.Fatal("overlong historical branch accepted")
+	}
+}
+
 // TestValidateBindingsPruneRegistrationNullBase covers §9.5's sole null
 // base commit: exact legacy cleanup, represented as the empty string on
 // the wire and recovered only through trusted prune.

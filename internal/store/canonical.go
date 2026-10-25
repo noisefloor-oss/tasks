@@ -15,6 +15,8 @@ import (
 // integers, booleans, null, arrays, and objects admitted. This rendering is
 // the byte format the versioned semantic and comparison digests cover.
 
+const maxJSONNestingDepth = 10000
+
 // canonicalJSON renders v in §8.5 canonical JSON. v must be composed of nil,
 // bool, string, json.Number, int/int64, []any, and map[string]any — the
 // shapes produced by decodeJSON and by the digest record builders.
@@ -27,6 +29,10 @@ func canonicalJSON(v any) ([]byte, error) {
 }
 
 func writeCanonical(buf *bytes.Buffer, v any) error {
+	return writeCanonicalAtDepth(buf, v, 0)
+}
+
+func writeCanonicalAtDepth(buf *bytes.Buffer, v any, depth int) error {
 	switch value := v.(type) {
 	case nil:
 		buf.WriteString("null")
@@ -45,17 +51,23 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 	case int64:
 		fmt.Fprintf(buf, "%d", value)
 	case []any:
+		if depth >= maxJSONNestingDepth {
+			return fmt.Errorf("canonical JSON: nesting depth exceeds %d", maxJSONNestingDepth)
+		}
 		buf.WriteByte('[')
 		for i, elem := range value {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			if err := writeCanonical(buf, elem); err != nil {
+			if err := writeCanonicalAtDepth(buf, elem, depth+1); err != nil {
 				return err
 			}
 		}
 		buf.WriteByte(']')
 	case map[string]any:
+		if depth >= maxJSONNestingDepth {
+			return fmt.Errorf("canonical JSON: nesting depth exceeds %d", maxJSONNestingDepth)
+		}
 		keys := make([]string, 0, len(value))
 		for k := range value {
 			keys = append(keys, k)
@@ -68,7 +80,7 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 			}
 			writeCanonicalString(buf, k)
 			buf.WriteByte(':')
-			if err := writeCanonical(buf, value[k]); err != nil {
+			if err := writeCanonicalAtDepth(buf, value[k], depth+1); err != nil {
 				return err
 			}
 		}
@@ -178,6 +190,10 @@ func rejectDuplicateKeys(data []byte) error {
 }
 
 func scanDuplicateKeys(dec *json.Decoder) error {
+	return scanDuplicateKeysAtDepth(dec, 0)
+}
+
+func scanDuplicateKeysAtDepth(dec *json.Decoder, depth int) error {
 	tok, err := dec.Token()
 	if err != nil {
 		return err
@@ -185,6 +201,9 @@ func scanDuplicateKeys(dec *json.Decoder) error {
 	delim, ok := tok.(json.Delim)
 	if !ok {
 		return nil // scalar leaf
+	}
+	if depth >= maxJSONNestingDepth {
+		return fmt.Errorf("nesting depth exceeds %d", maxJSONNestingDepth)
 	}
 	switch delim {
 	case '{':
@@ -202,7 +221,7 @@ func scanDuplicateKeys(dec *json.Decoder) error {
 				return fmt.Errorf("duplicate object key %q", key)
 			}
 			seen[key] = true
-			if err := scanDuplicateKeys(dec); err != nil {
+			if err := scanDuplicateKeysAtDepth(dec, depth+1); err != nil {
 				return err
 			}
 		}
@@ -210,7 +229,7 @@ func scanDuplicateKeys(dec *json.Decoder) error {
 		return err
 	case '[':
 		for dec.More() {
-			if err := scanDuplicateKeys(dec); err != nil {
+			if err := scanDuplicateKeysAtDepth(dec, depth+1); err != nil {
 				return err
 			}
 		}
@@ -221,12 +240,19 @@ func scanDuplicateKeys(dec *json.Decoder) error {
 }
 
 func decodeValue(dec *json.Decoder) (any, error) {
+	return decodeValueAtDepth(dec, 0)
+}
+
+func decodeValueAtDepth(dec *json.Decoder, depth int) (any, error) {
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
 	switch t := tok.(type) {
 	case json.Delim:
+		if depth >= maxJSONNestingDepth {
+			return nil, fmt.Errorf("nesting depth exceeds %d", maxJSONNestingDepth)
+		}
 		switch t {
 		case '{':
 			obj := map[string]any{}
@@ -242,7 +268,7 @@ func decodeValue(dec *json.Decoder) (any, error) {
 				if _, dup := obj[key]; dup {
 					return nil, fmt.Errorf("duplicate object key %q", key)
 				}
-				val, err := decodeValue(dec)
+				val, err := decodeValueAtDepth(dec, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -255,7 +281,7 @@ func decodeValue(dec *json.Decoder) (any, error) {
 		case '[':
 			var arr []any
 			for dec.More() {
-				val, err := decodeValue(dec)
+				val, err := decodeValueAtDepth(dec, depth+1)
 				if err != nil {
 					return nil, err
 				}

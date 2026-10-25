@@ -204,6 +204,9 @@ func validateRun(run *Run, _ *Configuration, caseDef *Case, path string) error {
 	if !oneOf(run.Disposition, "generate", "warn", "refuse") {
 		return fmt.Errorf("%s.disposition %q is invalid", path, run.Disposition)
 	}
+	if (run.Disposition == "refuse") != (run.Outcome == "refusal") {
+		return fmt.Errorf("%s disposition %q conflicts with outcome %q", path, run.Disposition, run.Outcome)
+	}
 	draftErr := validateGeneratedDrafts(run.Drafts, run.RequestedTasks)
 	if run.Outcome == "success" {
 		if draftErr != nil {

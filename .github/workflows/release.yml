@@ -8,6 +8,14 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate version (build and package only; never publish)
+        required: true
+        type: choice
+        options: ['2.9.1']
+        default: '2.9.1'
 
 # Jobs that execute repository code never hold release-writing authority.
 permissions:
@@ -15,8 +23,8 @@ permissions:
 
 jobs:
   release:
-    if: github.repository == 'noisefloor-oss/tasks'
-    runs-on: ubuntu-latest
+    if: github.repository == 'noisefloor-oss/tasks' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -32,16 +40,18 @@ jobs:
             --notes "noise-tasks $GITHUB_REF_NAME — installation archives and SHA256SUMS attached by the release workflow."
 
   build:
-    if: github.repository == 'noisefloor-oss/tasks'
+    if: always() && github.repository == 'noisefloor-oss/tasks' && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
     needs: release
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
+            runner: ubuntu-24.04
             arch: amd64
           - os: ubuntu-24.04-arm
+            runner: ubuntu-24.04-arm
             arch: arm64
     env:
       CGO_ENABLED: '0'
@@ -56,23 +66,35 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - name: Require a well-formed release tag
-        # The tag name reaches make's single-quoted ldflags, and make package
-        # runs as root; refuse anything but a plain version.
+      - name: Validate version and native architecture
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CANDIDATE_VERSION: ${{ inputs.version }}
         run: |
-          case "$GITHUB_REF_NAME" in
-            v[0-9]*.[0-9]*.[0-9]*) [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ;;
-            *) false ;;
-          esac || { echo "refusing tag '$GITHUB_REF_NAME': expected vX.Y.Z[-pre]" >&2; exit 1; }
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            test "$CANDIDATE_VERSION" = 2.9.1
+            version="$CANDIDATE_VERSION"
+          else
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          # The value reaches make's ldflags and root-owned packaging.
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          case "$GOARCH" in
+            amd64) test "$(uname -m)" = x86_64 ;;
+            arm64) test "$(uname -m)" = aarch64 ;;
+            *) exit 1 ;;
+          esac
       - name: Build
-        run: make build VERSION="${GITHUB_REF_NAME#v}"
+        run: make build VERSION="$RELEASE_VERSION"
       - name: Smoke-run version and help outside the checkout
         run: |
           bin="$GITHUB_WORKSPACE/build/bin/noise-tasks"
           smoke=$(mktemp -d)
           trap 'rmdir "$smoke"' EXIT
           cd "$smoke"
-          expected="noise-tasks ${GITHUB_REF_NAME#v}"
+          expected="noise-tasks $RELEASE_VERSION"
           actual=$("$bin" version)
           if [ "$actual" != "$expected" ]; then
             echo "version smoke failed: got '$actual', want '$expected'" >&2
@@ -87,7 +109,7 @@ jobs:
           trap 'sudo rm -rf "$staging"' EXIT
           sudo env PATH="$PATH" CGO_ENABLED="$CGO_ENABLED" GOFLAGS="$GOFLAGS" \
             GOOS="$GOOS" GOARCH="$GOARCH" \
-            make package GO="$(command -v go)" VERSION="${GITHUB_REF_NAME#v}" \
+            make package GO="$(command -v go)" VERSION="$RELEASE_VERSION" \
             DESTDIR="$staging"
           sudo cmp build/bin/noise-tasks "$staging/usr/local/bin/noise-tasks"
           sudo tar -C "$staging" -czf - usr > "noise-tasks-linux-$GOARCH.tar.gz"
@@ -99,9 +121,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.repository == 'noisefloor-oss/tasks'
+    if: github.repository == 'noisefloor-oss/tasks' && github.event_name == 'push'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

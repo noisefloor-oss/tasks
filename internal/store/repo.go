@@ -1181,8 +1181,9 @@ func (t *tx) topLevelDependents(tag, targetID string) ([]*Task, error) {
 }
 
 // removeTopLevel strips the reference from every dependent and deletes the
-// row. The caller has already refused the unforced dependency case and gated
-// the named target. Stripping is a collateral §1 field rewrite, so any
+// assignment and task rows. The caller has already refused the unforced
+// dependency case and gated the named target. Stripping is a collateral §1
+// field rewrite, so any
 // unexpired claim on a secondary dependent refuses the whole transaction
 // unconditionally: the target's gate can never authorize another task's row,
 // and no operator override exists for field mutation (SPEC §8.3). Expired
@@ -1220,6 +1221,9 @@ func (t *tx) removeTopLevel(tag string, task *Task, revision int, dependents []*
 		if err := t.appendEvent(Event{Task: dep.ID, Tag: tag, Kind: "update", Revision: dep.Revision, At: at}); err != nil {
 			return err
 		}
+	}
+	if _, err := t.Exec(`DELETE FROM assignments WHERE tag=? AND task_id=?`, tag, task.ID); err != nil {
+		return fmt.Errorf("remove assignment for task %s: %w", task.ID, err)
 	}
 	query := `DELETE FROM tasks WHERE tag=? AND id=? AND revision=?`
 	args := []any{tag, task.ID, revision}

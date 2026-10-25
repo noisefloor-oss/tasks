@@ -66,6 +66,15 @@ func wantState(t *testing.T, storeDir string, source, target, journal bool) {
 	}
 }
 
+func TestApplyMigrationPublishesPersistentWAL(t *testing.T) {
+	storeDir, _, commonDir, owner, bundle, plan := applyFamily(t)
+	opts := applyOpts(plan)
+	if _, err := ApplyMigration(bundle, commonDir, owner, opts); err != nil {
+		t.Fatalf("apply migration: %v", err)
+	}
+	requirePublishedWAL(t, filepath.Join(storeDir, StoreFile), ReceiptKindMigration, opts.RequestID)
+}
+
 func TestApplyMigrationHappyPath(t *testing.T) {
 	storeDir, _, commonDir, owner, bundle, plan := applyFamily(t)
 	targetPath := filepath.Join(storeDir, StoreFile)

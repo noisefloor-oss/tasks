@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -353,6 +354,77 @@ func TestLegacyBackupRefusals(t *testing.T) {
 	// gone: the v1 task record nests the task object, so an inner outerExtra
 	// and an outer-record outerExtra coexist — see
 	// TestLegacyInnerAndOuterOuterExtraCoexist.)
+}
+
+func TestLegacySubtaskRefusals(t *testing.T) {
+	const original = `[{"id": 1, "title": "sub", "status": "pending"}]`
+	tests := []struct {
+		name     string
+		subtasks string
+	}{
+		{"malformed id", `[{"id":"abc","title":"sub","status":"pending"}]`},
+		{"bad status", `[{"id":1,"title":"sub","status":"bogus"}]`},
+		{"duplicate normalized ids", `[{"id":1,"title":"one","status":"pending"},{"id":"1","title":"again","status":"pending"}]`},
+		{"malformed dependency", `[{"id":1,"title":"sub","status":"pending","dependencies":["abc"]}]`},
+		{"missing sibling dependency", `[{"id":1,"title":"sub","status":"pending","dependencies":[2]}]`},
+		{"missing qualified dependency", `[{"id":1,"title":"sub","status":"pending","dependencies":["2.9"]}]`},
+		{"self dependency", `[{"id":1,"title":"sub","status":"pending","dependencies":["1"]}]`},
+		{"duplicate normalized dependencies", `[{"id":1,"title":"one","status":"pending"},{"id":2,"title":"two","status":"pending","dependencies":[1,"1"]}]`},
+		{"numeric qualified dependency", `[{"id":1,"title":"one","status":"pending"},{"id":2,"title":"two","status":"pending","dependencies":[2.1]}]`},
+		{"dependency cycle", `[{"id":1,"title":"one","status":"pending","dependencies":[2]},{"id":2,"title":"two","status":"pending","dependencies":["2.1"]}]`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := strings.Replace(legacyFixture, original, test.subtasks, 1)
+			if doc == legacyFixture {
+				t.Fatal("test fixture did not replace subtasks")
+			}
+			_, legacy := legacyStoreDir(t, doc)
+			out := filepath.Join(t.TempDir(), "invalid.ntbackup")
+			_, err := CreateLegacyBackup(out, legacy, "/c", "/o", "t")
+			var refusal *LegacyRefusalError
+			if !errors.As(err, &refusal) {
+				t.Fatalf("CreateLegacyBackup error = %v, want LegacyRefusalError", err)
+			}
+			if _, statErr := os.Lstat(out); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("invalid subtasks published a bundle: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestLegacySubtaskStringIDAndUnknownFieldsPreserved(t *testing.T) {
+	const original = `[{"id": 1, "title": "sub", "status": "pending"}]`
+	const subtasks = `[{"id":"1","title":"sub","status":"pending","dependencies":[],"parentTaskId":"2","_custom":{"keep":true}},{"id":2,"title":"qualified","status":"pending","dependencies":["2.1"]}]`
+	doc := strings.Replace(legacyFixture, original, subtasks, 1)
+	doc = strings.Replace(doc, `"status": "done", "dependencies": []`, `"status": "done", "dependencies": ["2.1"]`, 1)
+	_, legacy := legacyStoreDir(t, doc)
+	out := filepath.Join(t.TempDir(), "valid.ntbackup")
+	if _, err := CreateLegacyBackup(out, legacy, "/c", "/o", "t"); err != nil {
+		t.Fatalf("valid string subtask id and qualified dependency refused: %v", err)
+	}
+	payload, err := openUnlocked(filepath.Join(out, PayloadFile), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := payload.Snapshot()
+	payload.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, task := range snap.Tags["main"].Tasks {
+		if task.ID != "2" {
+			continue
+		}
+		found = true
+		if string(task.Subtasks) != subtasks {
+			t.Fatalf("subtasks = %s, want byte-faithful %s", task.Subtasks, subtasks)
+		}
+	}
+	if !found {
+		t.Fatal("expected task missing from legacy payload")
+	}
 }
 
 // The nested task record makes inner and outer unknown-field namespaces

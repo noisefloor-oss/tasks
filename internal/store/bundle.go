@@ -261,6 +261,9 @@ func (d *DB) checkBackupPayload(payload *DB, createdBy string) (*Manifest, error
 		if err := payload.ValidateRunState(); err != nil {
 			return nil, err
 		}
+		if err := payload.ValidateRunReceipts(); err != nil {
+			return nil, err
+		}
 	}
 	if version >= worktreeSagaSchemaVersion {
 		if err := payload.ValidateWorktreeSagaState(); err != nil {
@@ -659,6 +662,9 @@ func verifyBundle(bundlePath, stageTo string) (*Manifest, error) {
 	if version >= runSchemaVersion {
 		if err := payload.ValidateRunState(); err != nil {
 			return nil, bundleErrorf("payload run state is invalid: %v", err)
+		}
+		if err := payload.ValidateRunReceipts(); err != nil {
+			return nil, bundleErrorf("payload run receipts are invalid: %v", err)
 		}
 	}
 	if version >= worktreeSagaSchemaVersion {

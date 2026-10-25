@@ -270,6 +270,9 @@ func setupRefusals(boundary, storePath string) error {
 	if err := migrationProjectGate(boundary, storePath); err != nil {
 		return err
 	}
+	if err := outsideGitRehomingGate(boundary); err != nil {
+		return err
+	}
 	if legacyStorePresent(storePath) {
 		return errors.New("legacy live store found; create a verified backup and run noise tasks migrate plan before running setup")
 	}

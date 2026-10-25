@@ -182,8 +182,8 @@ func validateRemovalAdmin(plan *WorktreeRemovePlan, admin string) error {
 	return nil
 }
 
-func findRemovalAdmin(plan *WorktreeRemovePlan) (string, error) {
-	entries, err := os.ReadDir(plan.RegistrationRoot)
+func findWorktreeAdmin(registrationRoot, target string, sagaID int64) (string, error) {
+	entries, err := os.ReadDir(registrationRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -195,23 +195,31 @@ func findRemovalAdmin(plan *WorktreeRemovePlan) (string, error) {
 		if strings.HasPrefix(entry.Name(), ".noise-remove-") {
 			continue
 		}
-		admin := filepath.Join(plan.RegistrationRoot, entry.Name())
+		admin := filepath.Join(registrationRoot, entry.Name())
 		if ok, err := lstatDirectory(admin); err != nil || !ok {
 			continue
 		}
 		backref, err := os.ReadFile(filepath.Join(admin, "gitdir"))
-		if err != nil || canonicalPath(strings.TrimSpace(string(backref))) != canonicalPath(filepath.Join(plan.TargetPath, ".git")) {
+		if err != nil || canonicalPath(strings.TrimSpace(string(backref))) != canonicalPath(filepath.Join(target, ".git")) {
 			continue
 		}
 		if found != "" {
-			return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
-		}
-		if err := validateRemovalAdmin(plan, admin); err != nil {
-			return "", err
+			return "", &WorktreeEffectIdentityMismatch{SagaID: sagaID}
 		}
 		found = admin
 	}
 	return found, nil
+}
+
+func findRemovalAdmin(plan *WorktreeRemovePlan) (string, error) {
+	admin, err := findWorktreeAdmin(plan.RegistrationRoot, plan.TargetPath, plan.SagaID)
+	if err != nil || admin == "" {
+		return admin, err
+	}
+	if err := validateRemovalAdmin(plan, admin); err != nil {
+		return "", err
+	}
+	return admin, nil
 }
 
 func findRemovalAdminStage(plan *WorktreeRemovePlan) (string, error) {

@@ -339,6 +339,9 @@ func ApplyMigration(bundlePath, commonDir, ownerBoundary string, opts ApplyOptio
 	}
 
 	// Publish by atomic no-replace rename, then fsync the directory.
+	if err := removeSQLiteSidecars(targetPath); err != nil {
+		return nil, err
+	}
 	if err := renameNoReplace(tmpPath, targetPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("migrate apply refused: target %s appeared during apply", targetPath)
@@ -593,6 +596,9 @@ func buildMigrationTarget(storeDir, payloadCopy string, manifest *Manifest, plan
 	}
 	if semantic != manifest.SemanticDigest {
 		return nil, "", cleanup, fmt.Errorf("rebuilt database semantic digest does not match the verified bundle")
+	}
+	if err := fresh.enableWAL(); err != nil {
+		return nil, "", cleanup, err
 	}
 	if err := fresh.useLegacyClaimAcquisitionIDs(); err != nil {
 		return nil, "", cleanup, err

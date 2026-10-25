@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/noisefloor-oss/tasks/internal/worktreeid"
 )
 
 // nameCharset is the shared printable subset for bound identifiers.
@@ -53,7 +55,7 @@ func splitBranch(branch string) (tag, id string, err error) {
 		return "", "", refuse("branch is not a tasks branch")
 	}
 	tag, id = rest[:i], rest[i+1:]
-	if strings.Contains(tag, "/") || !validName(tag, maxTagBytes) {
+	if !worktreeid.ValidHistoricalTag(tag) {
 		return "", "", refuse("branch tag is invalid")
 	}
 	if !validTaskID(id) {

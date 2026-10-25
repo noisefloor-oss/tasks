@@ -66,7 +66,7 @@ func milestoneFile(t *testing.T, content string) *File {
 // byte-identically: this is what a pre-§12 binary guarantees (§12).
 func TestMilestoneRoundTripFidelity(t *testing.T) {
 	f := milestoneFile(t, milestoneFixture)
-	data, err := f.MarshalFile()
+	data, err := f.buildFileBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestMilestoneCloseSplicesStatusOnly(t *testing.T) {
 	if err := f.SetMilestoneStatus("main", "m2", "open"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := f.MarshalFile()
+	data, err := f.buildFileBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestRemoveLastMilestoneDropsKey(t *testing.T) {
 	if _, err := f.RemoveMilestone("main", "m1", true); err != nil {
 		t.Fatal(err)
 	}
-	data, err := f.MarshalFile()
+	data, err := f.buildFileBytes()
 	if err != nil {
 		t.Fatal(err)
 	}

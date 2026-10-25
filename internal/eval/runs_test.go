@@ -106,6 +106,53 @@ func TestValidateRunBundleAcceptsRecordedProviderFailure(t *testing.T) {
 	}
 }
 
+func TestValidateRunBundleDispositionOutcomeCoherence(t *testing.T) {
+	tests := []struct {
+		name                string
+		expectedDisposition string
+		outcome             string
+		disposition         string
+		wantErr             bool
+	}{
+		{name: "success with refuse", outcome: "success", disposition: "refuse", wantErr: true},
+		{name: "refusal with generate", outcome: "refusal", disposition: "generate", wantErr: true},
+		{name: "refusal with warn", outcome: "refusal", disposition: "warn", wantErr: true},
+		{name: "refusal with refuse", outcome: "refusal", disposition: "refuse"},
+		{name: "success with generate", outcome: "success", disposition: "generate"},
+		{name: "success with warn", outcome: "success", disposition: "warn"},
+		{name: "provider error with generate", outcome: "provider-error", disposition: "generate"},
+		{name: "expected refuse but generated", expectedDisposition: "refuse", outcome: "success", disposition: "generate"},
+		{name: "expected generate but refused", expectedDisposition: "generate", outcome: "refusal", disposition: "refuse"},
+		{name: "expected warn but generated", expectedDisposition: "warn", outcome: "success", disposition: "generate"},
+		{name: "expected generate but warned", expectedDisposition: "generate", outcome: "success", disposition: "warn"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			corpus := validCorpus(t)
+			bundle := validRunBundle(t, corpus, "development")
+			run := &bundle.Runs[0]
+			if tc.expectedDisposition != "" {
+				for i := range corpus.Cases {
+					if corpus.Cases[i].ID == run.CaseID {
+						corpus.Cases[i].ExpectedDisposition = tc.expectedDisposition
+					}
+				}
+			}
+			setRunOutcome(run, tc.outcome, tc.disposition)
+			err := ValidateRunBundle(bundle, corpus)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "conflicts with outcome") {
+					t.Fatalf("ValidateRunBundle error = %v, want disposition/outcome conflict", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ValidateRunBundle: %v", err)
+			}
+		})
+	}
+}
+
 func validRunBundle(t *testing.T, corpus *Corpus, split string) *RunBundle {
 	t.Helper()
 	promptHash := hashBytes([]byte("frozen prompt"))
@@ -174,6 +221,21 @@ func cloneRunBundle(t *testing.T, bundle *RunBundle) *RunBundle {
 		t.Fatal(err)
 	}
 	return &clone
+}
+
+func setRunOutcome(run *Run, outcome, disposition string) {
+	run.Outcome = outcome
+	run.Disposition = disposition
+	if outcome == "success" {
+		return
+	}
+	run.RawResponse = ""
+	run.RawResponseSHA256 = hashBytes(nil)
+	run.Drafts = []genai.Draft{}
+	run.ParsedDraftsSHA256 = canonicalDraftDigest(run.Drafts)
+	run.StopClassification = outcome
+	run.Publication = PublicationObservation{Atomic: true}
+	run.Adjudication = nil
 }
 
 func hashBytes(value []byte) string {

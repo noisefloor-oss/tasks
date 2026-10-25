@@ -28,7 +28,6 @@ type File struct {
 	blocks map[string]*tagBlock
 }
 
-func (f *File) Path() string           { return f.path }
 func (f *File) Tags() []string         { return append([]string(nil), f.tags...) }
 func (f *File) HasTag(tag string) bool { _, ok := f.blocks[tag]; return ok }
 
@@ -57,23 +56,6 @@ func (f *File) Task(tag, id string) (*Task, error) {
 	return nil, fmt.Errorf("task %s not found in tag %q", id, tag)
 }
 
-// TaskRaw returns the byte-faithful serialized §1 object for a task, plus its
-// decoded Task. It is the bridge used by the live store to carry §1 fields
-// without losing unknown fields.
-func (f *File) TaskRaw(tag, id string) (json.RawMessage, *Task, error) {
-	blk, ok := f.blocks[tag]
-	if !ok {
-		return nil, nil, fmt.Errorf("tag %q not found", tag)
-	}
-	for _, tr := range blk.tasks {
-		if tr.task.ID == id {
-			raw := append(json.RawMessage(nil), tr.raw...)
-			return raw, &tr.task, nil
-		}
-	}
-	return nil, nil, fmt.Errorf("task %s not found in tag %q", id, tag)
-}
-
 // TasksRaw returns the byte-faithful serialized §1 objects for a tag in file
 // order.
 func (f *File) TasksRaw(tag string) ([]json.RawMessage, error) {
@@ -91,11 +73,6 @@ func (f *File) TasksRaw(tag string) ([]json.RawMessage, error) {
 // ReadTask parses a serialized §1 task object.
 func ReadTask(raw json.RawMessage) (*Task, error) {
 	return decodeTask(raw)
-}
-
-// MarshalFile serializes the file using the codec's deterministic §3 form.
-func (f *File) MarshalFile() ([]byte, error) {
-	return f.buildFileBytes()
 }
 
 func (f *File) Metadata(tag string) (*Metadata, error) {

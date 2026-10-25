@@ -22,7 +22,7 @@ var TestRoot string
 
 // These build-time-only values support process-level fault and trust-policy
 // tests. They cannot be selected by a release process at runtime.
-var TestPoint, TestMarker, TestFilesystem string
+var TestPoint, TestRollbackPoint, TestMarker, TestFilesystem string
 
 type IDs map[uint32]bool
 
@@ -149,8 +149,9 @@ func Publish(c Config) error {
 		return trust(c.Stage, "cannot atomically place versioned root: "+err.Error())
 	}
 	published := false
+	retainVersion := false
 	defer func() {
-		if !published {
+		if !published && !retainVersion {
 			discardVersion(version)
 		}
 	}()
@@ -175,12 +176,14 @@ func Publish(c Config) error {
 	}
 	if err := testPoint("swapped"); err != nil {
 		if rollbackErr := rollback(root, prior, parent); rollbackErr != nil {
+			retainVersion = true
 			return trust(root, fmt.Sprintf("%v; rollback failed: %v", err, rollbackErr))
 		}
 		return err
 	}
 	if err := syncDir(parent); err != nil {
 		if rollbackErr := rollback(root, prior, parent); rollbackErr != nil {
+			retainVersion = true
 			return trust(root, fmt.Sprintf("publication sync failed: %v; rollback failed: %v", err, rollbackErr))
 		}
 		return trust(root, "publication sync failed and prior installation was restored: "+err.Error())
@@ -458,6 +461,9 @@ func versionPath(parent, stage string) (string, error) {
 }
 
 func rollback(root, prior, parent string) error {
+	if err := testRollbackPoint("rollback-before-restore"); err != nil {
+		return err
+	}
 	if prior == "" {
 		if err := os.Remove(root); err != nil {
 			return err
@@ -473,7 +479,17 @@ func rollback(root, prior, parent string) error {
 			return err
 		}
 	}
+	if err := testRollbackPoint("rollback-after-restore"); err != nil {
+		return err
+	}
 	return syncDir(parent)
+}
+
+func testRollbackPoint(point string) error {
+	if TestRollbackPoint == "fail:"+point {
+		return trust(libexec.Root, "build-selected publication failure at "+point)
+	}
+	return nil
 }
 
 func discardVersion(path string) {

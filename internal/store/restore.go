@@ -158,7 +158,7 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 		var replay map[string]any
 		err = target.deferred(func(t *tx) error {
 			var err error
-			replay, err = t.findReceipt(ReceiptKindRestore, opts.RequestID)
+			replay, err = t.findVerifiedReceipt(ReceiptKindRestore, opts.RequestID)
 			return err
 		})
 		if err != nil {
@@ -188,10 +188,8 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 			return nil, err
 		}
 		// Remove only checkpointed stale sidecars; the main file is complete.
-		for _, suffix := range []string{"-wal", "-shm"} {
-			if err := os.Remove(targetPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
+		if err := removeSQLiteSidecars(targetPath); err != nil {
+			return nil, err
 		}
 	} else {
 		if opts.OwnerBoundary == "" || opts.OwnerBoundary != ownerBoundary {
@@ -242,6 +240,10 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 		fresh.Close()
 		return nil, fmt.Errorf("rebuilt database semantic digest does not match the verified bundle")
 	}
+	if err := fresh.enableWAL(); err != nil {
+		fresh.Close()
+		return nil, err
+	}
 	// A legacy bundle's comparison proof covers its exact v3 compatibility
 	// payload. Only the private restore stage receives deterministic claim
 	// acquisition ids, before the first ordinary immediate transaction
@@ -283,6 +285,10 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 		return nil, err
 	}
 	if err := fresh.ValidateRunState(); err != nil {
+		fresh.Close()
+		return nil, err
+	}
+	if err := fresh.ValidateRunReceipts(); err != nil {
 		fresh.Close()
 		return nil, err
 	}
@@ -346,6 +352,9 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 		// An absent target publishes with a no-replace rename: a target that
 		// appeared in the race window is never overwritten without
 		// --overwrite authorization.
+		if err := removeSQLiteSidecars(targetPath); err != nil {
+			return nil, err
+		}
 		if err := renameNoReplace(tmpPath, targetPath); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				return nil, fmt.Errorf("restore refused: target %s appeared during restore without --overwrite authorization", targetPath)
@@ -370,7 +379,7 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 // that record without a duplicate event or receipt row, and a different
 // input is a typed conflict, never a unique-index error.
 func writeRestoreReceipt(t *tx, manifest *Manifest, requestID, familyID, inputDigest, receiptID, committedAt string) (map[string]any, bool, error) {
-	staged, err := t.findReceipt(ReceiptKindRestore, requestID)
+	staged, err := t.findVerifiedReceipt(ReceiptKindRestore, requestID)
 	if err != nil {
 		return nil, false, err
 	}

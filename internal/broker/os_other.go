@@ -14,7 +14,13 @@ func RegistrationRootReachable(string) bool { return false }
 
 func EnterPID1MountNamespace() error { return errUnsupported }
 
-func TryEnterNamespaceFD(int) error { return errUnsupported }
+func AlreadyInPID1MountNamespace() bool { return false }
+
+func IsMountNamespaceFD(int) bool { return false }
+
+func StageCapabilityForReexec(int, []byte) error { return errUnsupported }
+
+func TryEnterNamespaceFD(int, []byte) error { return errUnsupported }
 
 func LoadKeyFile(string) (Key, error) { return nil, refuse("platform is unsupported") }
 
