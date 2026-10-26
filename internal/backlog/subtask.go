@@ -453,7 +453,11 @@ func replaceSubtaskStatus(raw json.RawMessage, ref taskReference, status string)
 		return nil, fmt.Errorf("task %s not found", ref.String())
 	}
 
-	result := make([]byte, 0, len(src)-int(matchEnd-matchStart)+len(replacement))
+	size, err := checkedSpliceSize(len(src)-int(matchEnd-matchStart), len(replacement))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]byte, 0, size)
 	result = append(result, src[:matchStart]...)
 	result = append(result, replacement...)
 	result = append(result, src[matchEnd:]...)

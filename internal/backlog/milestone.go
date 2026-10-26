@@ -293,7 +293,11 @@ func SpliceArrayElement(raw json.RawMessage, index int, newElem json.RawMessage)
 		return nil, fmt.Errorf("array element %d out of range", index)
 	}
 	e := elems[index]
-	out := make([]byte, 0, len(src)+len(newElem))
+	size, err := checkedSpliceSize(len(src)-(e.end-e.start), len(newElem))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, size)
 	out = append(out, src[:e.start]...)
 	out = append(out, newElem...)
 	out = append(out, src[e.end:]...)
@@ -658,7 +662,11 @@ func InsertObjectMember(raw json.RawMessage, afterKey, key string, value json.Ra
 		if m.key != key {
 			continue
 		}
-		out := make([]byte, 0, len(src)+len(newMember))
+		size, err := checkedSpliceSize(len(src)-(m.valEnd-m.valStart), len(value))
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, size)
 		out = append(out, src[:m.valStart]...)
 		out = append(out, value...)
 		out = append(out, src[m.valEnd:]...)
@@ -677,7 +685,11 @@ func InsertObjectMember(raw json.RawMessage, afterKey, key string, value json.Ra
 		if m.key != afterKey {
 			continue
 		}
-		out := make([]byte, 0, len(src)+len(newMember)+len(sep))
+		size, err := checkedSpliceSize(len(src), len(newMember), len(sep))
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, size)
 		out = append(out, src[:m.valEnd]...)
 		out = append(out, []byte(sep)...)
 		out = append(out, newMember...)

@@ -1528,12 +1528,17 @@ func TestConcurrentIdenticalWorktreeRecovery(t *testing.T) {
 	start := make(chan struct{})
 	out := make(chan committed, 2)
 	var wg sync.WaitGroup
+	// Both snapshots must precede commits; a late snapshot can validly replay.
+	var attemptsReady sync.WaitGroup
+	attemptsReady.Add(2)
 	for range 2 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			<-start
 			attempt, err := db.RecoverWorktreeSaga(opts)
+			attemptsReady.Done()
+			attemptsReady.Wait()
 			if err != nil {
 				out <- committed{nil, err}
 				return
