@@ -32,13 +32,16 @@ type RunStartResult struct {
 }
 
 // RunConflict is a typed §9.3 conflict whose diagnostic contains only the
-// caller's non-secret identifiers.
+// caller's non-secret identifiers. Hint, when set, is a presentation-layer
+// usage diagnostic rendered on stderr only; Error() stays single-line and
+// stdout and the exit code are unchanged.
 type RunConflict struct {
 	Operation string
 	Tag       string
 	Task      string
 	RunID     int64
 	Attempt   int64
+	Hint      string
 }
 
 func (e *RunConflict) Error() string {

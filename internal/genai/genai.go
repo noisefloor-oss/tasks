@@ -215,17 +215,37 @@ func validateDraftCycles(drafts []Draft) error {
 // shape and the details guidance are provider-facing prompt rules,
 // deliberately not machine-checked (§4.0).
 func validateGeneratedText(index int, d Draft) error {
-	if strings.ContainsAny(d.Title, "\n\r") {
-		return fmt.Errorf("draft %d title contains a newline", index)
+	if err := ValidateTitle(d.Title); err != nil {
+		return fmt.Errorf("draft %d %s", index, err)
 	}
-	if len(d.Title) > 200 {
-		return fmt.Errorf("draft %d title exceeds 200 bytes", index)
+	if err := ValidateDescription(d.Description); err != nil {
+		return fmt.Errorf("draft %d %s", index, err)
 	}
-	if strings.ContainsAny(d.Description, "\n\r") {
-		return fmt.Errorf("draft %d description contains a newline", index)
+	return nil
+}
+
+// ValidateTitle enforces the machine boundary of the §4.0 title
+// contract: a single line of at most 200 bytes. Untrusted task text
+// entering the store from outside — generate output and issue titles
+// supplied to `ensure` — passes this same surface.
+func ValidateTitle(title string) error {
+	if strings.ContainsAny(title, "\n\r") {
+		return errors.New("title contains a newline")
 	}
-	if len(d.Description) > 500 {
-		return fmt.Errorf("draft %d description exceeds 500 bytes", index)
+	if len(title) > 200 {
+		return errors.New("title exceeds 200 bytes")
+	}
+	return nil
+}
+
+// ValidateDescription enforces the machine boundary of the §4.0
+// description contract: a single line of at most 500 bytes.
+func ValidateDescription(description string) error {
+	if strings.ContainsAny(description, "\n\r") {
+		return errors.New("description contains a newline")
+	}
+	if len(description) > 500 {
+		return errors.New("description exceeds 500 bytes")
 	}
 	return nil
 }

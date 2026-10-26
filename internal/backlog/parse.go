@@ -204,6 +204,7 @@ type taskJSON struct {
 	Priority     string            `json:"priority"`
 	Dependencies []json.RawMessage `json:"dependencies"`
 	Milestone    string            `json:"milestone"`
+	ExternalLink json.RawMessage   `json:"externalLink"`
 	Subtasks     []json.RawMessage `json:"subtasks"`
 	UpdatedAt    string            `json:"updatedAt"`
 }
@@ -223,6 +224,14 @@ func decodeTask(raw json.RawMessage) (*Task, error) {
 		Milestone:   aux.Milestone,
 		Subtasks:    aux.Subtasks,
 		UpdatedAt:   aux.UpdatedAt,
+	}
+	// A malformed externalLink member decodes to a nil Link — the raw
+	// object keeps the member byte-faithfully and verify reports it
+	// (SPEC §1); it is never a parse error.
+	if len(aux.ExternalLink) > 0 {
+		if link, err := DecodeExternalLink(aux.ExternalLink); err == nil {
+			t.Link = link
+		}
 	}
 	if aux.Dependencies != nil {
 		t.Dependencies = make([]string, len(aux.Dependencies))

@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/noisefloor-oss/tasks/internal/backlog"
 )
 
 // newBackupStore builds a populated, identity-bearing §8.1 store in dir:
@@ -326,6 +329,9 @@ func TestV5BackupVerifyRestoreWorktreeSagas(t *testing.T) {
 	dir := t.TempDir()
 	source := newMinimalSagaDB(t)
 	defer source.Close()
+	// The v5 fixture is a genuine v5 store: rewind the freshly created
+	// (current-schema) store down to the exact preceding v5 catalog.
+	rewindStoreToV5(t, source)
 	if err := insertMinimalSaga(source, validMinimalSaga(t, source)); err != nil {
 		t.Fatal(err)
 	}
@@ -367,6 +373,51 @@ func TestV5BackupVerifyRestoreWorktreeSagas(t *testing.T) {
 	})
 	if _, err := VerifyBundle(bundle); err == nil || !strings.Contains(err.Error(), "worktree saga state is invalid") {
 		t.Fatalf("corrupt saga bundle verification=%v", err)
+	}
+}
+
+// TestV6BackupVerifyRestoreExternalLink exercises the current schema's own
+// catalog admission: a linked task backs up, verifies against the v6
+// reference catalog, and restores with the link intact.
+func TestV6BackupVerifyRestoreExternalLink(t *testing.T) {
+	dir := t.TempDir()
+	source, _ := newDB(t)
+	defer source.Close()
+	link := backlog.ExternalLink{Family: "github", Repository: "acme/widgets", Issue: 214}
+	if _, err := source.AddTask("main", &Task{Title: "linked", Link: &link}); err != nil {
+		t.Fatal(err)
+	}
+	var owner string
+	if err := source.db.QueryRow(`SELECT value FROM meta WHERE key='ownerBoundary'`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(dir, "links.ntbackup")
+	manifest, err := source.CreateBackup(bundle, "noise-tasks v6 fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.CurrentSchemaVersion != externalLinkSchemaVersion ||
+		manifest.SourceSchema != "sqlite:"+strconv.Itoa(externalLinkSchemaVersion) {
+		t.Fatalf("v6 manifest=%+v", manifest)
+	}
+	if _, err := VerifyBundle(bundle); err != nil {
+		t.Fatalf("verify v6 bundle: %v", err)
+	}
+	target := filepath.Join(dir, "restored", "noise-tasks", "tasks.sqlite")
+	if _, err := Restore(bundle, target, RestoreOptions{RequestID: "restore.link", OwnerBoundary: owner}); err != nil {
+		t.Fatalf("restore v6 bundle: %v", err)
+	}
+	restored, err := Open(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	task, err := restored.GetTask("main", "1")
+	if err != nil || task.Link == nil || task.Link.String() != link.String() {
+		t.Fatalf("restored link = %+v, %v", task.Link, err)
+	}
+	if err := restored.SetLink("main", "1", backlog.ExternalLink{Family: "github", Repository: "other/x", Issue: 1}, task.Revision, nil); err == nil {
+		t.Fatal("restored set-once link not enforced")
 	}
 }
 

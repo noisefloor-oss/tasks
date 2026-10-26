@@ -186,6 +186,9 @@ func MarshalTask(t Task) json.RawMessage {
 	if t.Milestone != "" {
 		obj.setRaw("milestone", MarshalString(t.Milestone))
 	}
+	if t.Link != nil {
+		obj.setRaw("externalLink", MarshalExternalLink(*t.Link))
+	}
 	obj.setRaw("dependencies", mustMarshalJSON(t.Dependencies))
 	subtasks := t.Subtasks
 	if subtasks == nil {

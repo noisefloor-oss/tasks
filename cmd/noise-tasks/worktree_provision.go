@@ -60,7 +60,7 @@ func cmdWorktreeProvision(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("worktree provision", stderr, &cf)
 	var capability worktreeProvisionCapabilityFlags
 	capability.register(fs)
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -101,8 +101,18 @@ func cmdWorktreeProvision(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	if record == nil {
-		return reportWorktreeProvisionError(stderr, cf.json,
-			&store.RunConflict{Operation: "provision", RunID: runID, Attempt: capability.attempt})
+		conflict := &store.RunConflict{Operation: "provision", RunID: runID, Attempt: capability.attempt}
+		human := conflict.Error()
+		// §9.4 diagnostic: the argument names no run but does name a task —
+		// the caller almost certainly passed a task id. The refusal itself
+		// (exit 3, empty stdout) is unchanged; a failed hint lookup must not
+		// soften it. Error() stays single-line, so the hint renders as its
+		// own stderr line here and as the JSON hint member below.
+		if tags, herr := ps.db.RunArgumentTaskHint(runID); herr == nil && len(tags) > 0 {
+			conflict.Hint = taskIDArgumentHint(runID, tags)
+			human += "\n" + conflict.Hint
+		}
+		return writeLiveConflict(stderr, cf.json, runConflictOut(conflict), human)
 	}
 	reserved, reservedBase, err := ps.db.WorktreeRequestReserved(capability.requestID)
 	if err != nil {
@@ -249,6 +259,31 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// taskIDArgumentHint renders the §9.4 task-id-mistake diagnostic for every
+// tag whose tasks table carries the mistaken id (ascending tag order). An id
+// used by one tag keeps the pointed single-task wording; an id reused across
+// tags names the ambiguity and each tag's live run.
+func taskIDArgumentHint(argument int64, tags []store.RunArgumentTask) string {
+	if len(tags) == 1 {
+		if tags[0].LiveRunID > 0 {
+			return fmt.Sprintf("hint: %d is a task id, not a run id; task %d's current run id is %d",
+				argument, argument, tags[0].LiveRunID)
+		}
+		return fmt.Sprintf("hint: %d is a task id, not a run id; task %d has no current run", argument, argument)
+	}
+	names := make([]string, len(tags))
+	runs := make([]string, len(tags))
+	for i, tag := range tags {
+		names[i] = tag.Tag
+		if tag.LiveRunID > 0 {
+			runs[i] = fmt.Sprintf("task %d in tag %s has current run id %d", argument, tag.Tag, tag.LiveRunID)
+		} else {
+			runs[i] = fmt.Sprintf("task %d in tag %s has no current run", argument, tag.Tag)
+		}
+	}
+	return fmt.Sprintf("hint: %d is a task id in tags %s; %s", argument, strings.Join(names, ", "), strings.Join(runs, "; "))
 }
 
 // reportWorktreeProvisionError maps the provision surface errors to exits:

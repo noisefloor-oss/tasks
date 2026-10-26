@@ -32,7 +32,7 @@ func cmdWorktreeRecover(args []string, stdout, stderr io.Writer) int {
 	decimalInt64Var(fs, &sagaToken, "saga-token", "private saga fence token")
 	var requestID string
 	fs.StringVar(&requestID, "request-id", "", "deterministic recovery request id")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if cf.file != "" {
@@ -155,10 +155,15 @@ func writeWorktreeRecoverResult(stdout, stderr io.Writer, jsonOut bool, result *
 		// §9.4: a cleanup-required result — fresh, no-burn handoff, or exact
 		// replay — is the exit-0 mutation result under --json; human
 		// invocation is exit 1 with empty stdout and exactly the pinned line
-		// on stderr.
+		// on stderr. Under --json a bounded observation cause — e.g. a
+		// residual quarantine path with its permission error — is
+		// stderr-only.
 		if jsonOut {
 			if err := writeRecoverJSON(stdout, result); err != nil {
 				return fail(stderr, err)
+			}
+			if cause != nil {
+				fmt.Fprintln(stderr, "noise-tasks: "+boundedDiagnostic(cause.Error()))
 			}
 			return 0
 		}

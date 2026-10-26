@@ -57,7 +57,7 @@ func generateMain(args []string, stdin io.Reader, stdout, stderr io.Writer, sele
 	fs := newFlagSet("generate", stderr, &cf)
 	numF := fs.Int("num-tasks", 10, fmt.Sprintf("number of tasks to generate (1-%d)", genai.MaxDrafts))
 	yesF := fs.Bool("yes", false, "append the drafted tasks without interactive confirmation")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {

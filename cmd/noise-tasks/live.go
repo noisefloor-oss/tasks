@@ -221,6 +221,9 @@ func cmdLive(args []string, stdout, stderr io.Writer) int {
 	sub := args[0]
 	rest := args[1:]
 	switch sub {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks live <feed> [options]")
+		return 0
 	case "feed":
 		return cmdLiveFeed(rest, stdout, stderr)
 	default:
@@ -236,7 +239,7 @@ func cmdClaim(args []string, stdout, stderr io.Writer) int {
 	lf.register(fs)
 	lf.registerRemovedWorktree(fs)
 	requestID := fs.String("request-id", "", "request id for §8.4 acquisition replay")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -331,7 +334,7 @@ func cmdRelease(args []string, stdout, stderr io.Writer) int {
 	var lf liveFlags
 	lf.register(fs)
 	lf.registerRemovedKeepWorktree(fs)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -388,7 +391,7 @@ func cmdLiveFeed(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("live feed", stderr, &cf)
 	since := fs.Int64("since", 0, "replay events after this sequence")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {

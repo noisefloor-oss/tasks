@@ -22,7 +22,7 @@ func cmdClaimNext(args []string, stdout, stderr io.Writer) int {
 	milestoneF := fs.String("milestone", "", "restrict candidates to this milestone")
 	assignmentF := fs.String("assignment", "", "restrict candidates to tasks assigned to this owner")
 	requestID := fs.String("request-id", "", "request id for §8.4 acquisition replay")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {

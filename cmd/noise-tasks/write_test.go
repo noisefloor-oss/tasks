@@ -928,14 +928,17 @@ func TestHelpExitsZeroAcrossCommands(t *testing.T) {
 		if code != 0 {
 			t.Errorf("%s -help exit = %d, want 0", name, code)
 		}
-		if stdout != "" {
-			t.Errorf("%s -help wrote stdout: %q", name, stdout)
+		if stderr != "" {
+			t.Errorf("%s -help wrote stderr: %q", name, stderr)
 		}
-		if tc.commonFlags && !strings.Contains(stderr, "-file") {
-			t.Errorf("%s -help should document the common flags, stderr = %q", name, stderr)
+		if !strings.Contains(stdout, "usage:") {
+			t.Errorf("%s -help should print a usage line, stdout = %q", name, stdout)
 		}
-		if !tc.commonFlags && strings.Contains(stderr, "-file") {
-			t.Errorf("%s -help must not document project flags, stderr = %q", name, stderr)
+		if tc.commonFlags && !strings.Contains(stdout, "-file") {
+			t.Errorf("%s -help should document the common flags, stdout = %q", name, stdout)
+		}
+		if !tc.commonFlags && strings.Contains(stdout, "-file") {
+			t.Errorf("%s -help must not document project flags, stdout = %q", name, stdout)
 		}
 		// A genuinely bad flag still exits 2.
 		if code, _, _ := runCmd(tc.run, "-no-such-flag"); code != 2 {

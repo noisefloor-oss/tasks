@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -60,14 +59,13 @@ func runVerify(args []string) int {
 }
 
 func verifyMain(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs := newCommandFlagSet("verify", stderr)
 	fileFlag := fs.String("file", "", "path to a standalone fixture document")
 	tagFlag := fs.String("tag", "", "verify a single tag (default: all tags)")
 	jsonFlag := fs.Bool("json", false, "machine-readable output")
 	againstFlag := fs.String("against", "", "git ref to prove no tasks were removed since (--file only)")
 	// parseFlags keeps the -help exit code aligned at 0 across commands.
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() > 0 {
@@ -265,6 +263,7 @@ func codecFinding(err error) *verifyFinding {
 // trusted afterward per SPEC §1, so it is deliberately not checked.)
 func structuralFindings(f *backlog.File, tags []string) []verifyFinding {
 	var out []verifyFinding
+	seenLinks := map[backlog.ExternalLink]linkHolder{}
 	for _, tag := range tags {
 		tasks, err := f.Tasks(tag)
 		if err != nil {
@@ -287,6 +286,7 @@ func structuralFindings(f *backlog.File, tags []string) []verifyFinding {
 			}
 		}
 		out = append(out, cycleFindings(tag, tasks)...)
+		out = append(out, linkFindings(f, tag, seenLinks)...)
 		out = append(out, milestoneFindings(f, tag, tasks)...)
 		if meta, _ := f.Metadata(tag); meta != nil {
 			done := 0
@@ -305,6 +305,64 @@ func structuralFindings(f *backlog.File, tags []string) []verifyFinding {
 		}
 	}
 	return out
+}
+
+// linkFindings runs the §4 external-link checks on the tag's raw task
+// objects: member shape and grammar per §1, and triple uniqueness across
+// the whole document. The shared seen map carries each holder's tag so a
+// duplicate names both tasks unambiguously.
+type linkHolder struct {
+	tag, id string
+}
+
+func linkFindings(f *backlog.File, tag string, seen map[backlog.ExternalLink]linkHolder) []verifyFinding {
+	raws, err := f.TasksRaw(tag)
+	if err != nil {
+		return nil
+	}
+	var out []verifyFinding
+	for _, raw := range raws {
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &members); err != nil {
+			continue
+		}
+		id := idStringOf(members)
+		linkRaw, present := members["externalLink"]
+		if !present {
+			continue
+		}
+		link, err := backlog.DecodeExternalLink(linkRaw)
+		if err != nil {
+			out = append(out, verifyFinding{
+				Tag:     tag,
+				Task:    id,
+				Kind:    "invalid-link",
+				Message: fmt.Sprintf("task %s: %s", id, err.Error()),
+			})
+			continue
+		}
+		if holder, dup := seen[*link]; dup {
+			out = append(out, verifyFinding{
+				Tag:  tag,
+				Task: id,
+				Kind: "duplicate-link",
+				Message: fmt.Sprintf("tasks %s/%s and %s/%s: duplicate external link %s",
+					holder.tag, holder.id, tag, id, link.String()),
+			})
+			continue
+		}
+		seen[*link] = linkHolder{tag: tag, id: id}
+	}
+	return out
+}
+
+func idStringOf(members map[string]json.RawMessage) string {
+	raw := members["id"]
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 // cycleFindings detects dependency cycles within a tag by depth-first
@@ -667,6 +725,7 @@ func fieldChanges(tag string, old, cur backlog.Task) []verifyChange {
 		{"status", old.Status, cur.Status},
 		{"priority", old.Priority, cur.Priority},
 		{"milestone", old.Milestone, cur.Milestone},
+		{"externalLink", linkStringOrEmpty(old.Link), linkStringOrEmpty(cur.Link)},
 		{"dependencies", strings.Join(old.Dependencies, ","), strings.Join(cur.Dependencies, ",")},
 		{"subtasks", compactJSONList(old.Subtasks), compactJSONList(cur.Subtasks)},
 		{"updatedAt", old.UpdatedAt, cur.UpdatedAt},
@@ -687,6 +746,13 @@ func fieldChanges(tag string, old, cur backlog.Task) []verifyChange {
 		})
 	}
 	return out
+}
+
+func linkStringOrEmpty(l *backlog.ExternalLink) string {
+	if l == nil {
+		return ""
+	}
+	return l.String()
 }
 
 func compactJSONList(raws []json.RawMessage) string {

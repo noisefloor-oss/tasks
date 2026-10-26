@@ -302,8 +302,8 @@ func TestWriteWorktreeRemoveResultFailedContract(t *testing.T) {
 // TestWriteWorktreeRemoveResultCleanupRequiredContract pins the §9.4
 // five-column matrix row for cleanup-required at the one surface both fresh
 // finalization and exact receipt replay pass through: exit-0 mutation result
-// under --json; exit 1, empty stdout, exactly the pinned line on stderr for
-// human invocation.
+// under --json with the bounded observation cause on stderr; exit 1, empty
+// stdout, exactly the pinned line on stderr for human invocation.
 func TestWriteWorktreeRemoveResultCleanupRequiredContract(t *testing.T) {
 	recoverID := "recover-" + strings.Repeat("c", 64)
 	runID := int64(7)
@@ -315,7 +315,7 @@ func TestWriteWorktreeRemoveResultCleanupRequiredContract(t *testing.T) {
 
 	var stdout, stderr strings.Builder
 	code := writeWorktreeRemoveResult(&stdout, &stderr, true, result, errors.New("unproved"))
-	if code != 0 || stderr.String() != "" {
+	if code != 0 || stderr.String() != "noise-tasks: unproved\n" {
 		t.Fatalf("cleanup-required --json = exit %d stderr %q", code, stderr.String())
 	}
 	var decoded store.WorktreeMutationResult

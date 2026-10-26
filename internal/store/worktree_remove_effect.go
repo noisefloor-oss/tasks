@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -234,7 +235,7 @@ func findRemovalAdminStage(plan *WorktreeRemovePlan) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var found string
+	var found, degraded string
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), prefix) {
 			continue
@@ -244,16 +245,36 @@ func findRemovalAdminStage(plan *WorktreeRemovePlan) (string, error) {
 			continue
 		}
 		backref, err := os.ReadFile(filepath.Join(stage, "gitdir"))
+		if errors.Is(err, fs.ErrNotExist) {
+			// A partial deletion already removed this staged
+			// registration's marker. The saga-fence-prefixed name is the
+			// recorded rename target, so the directory is provably this
+			// saga's own stage; replay must finish deleting it.
+			if degraded != "" {
+				return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
+			}
+			degraded = stage
+			continue
+		}
 		if err != nil || canonicalPath(strings.TrimSpace(string(backref))) != canonicalPath(filepath.Join(plan.TargetPath, ".git")) {
 			continue
 		}
 		head, err := os.ReadFile(filepath.Join(stage, "HEAD"))
-		if err != nil || strings.TrimSpace(string(head)) != "ref: refs/heads/"+plan.Branch || found != "" {
+		if err != nil || strings.TrimSpace(string(head)) != "ref: refs/heads/"+plan.Branch {
+			return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
+		}
+		if found != "" {
 			return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
 		}
 		found = stage
 	}
-	return found, nil
+	if found != "" && degraded != "" {
+		return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
+	}
+	if found != "" {
+		return found, nil
+	}
+	return degraded, nil
 }
 
 func inspectRemovalEffect(plan *WorktreeRemovePlan) (*removalEffectState, error) {
@@ -281,14 +302,26 @@ func inspectRemovalEffect(plan *WorktreeRemovePlan) (*removalEffectState, error)
 	case state.targetExists:
 		state.admin, err = readRemovalAdmin(plan, filepath.Join(plan.TargetPath, ".git"))
 	case stageExists:
-		var expected string
-		expected, err = parseRemovalAdminMarker(plan, filepath.Join(state.targetStage, ".git"))
-		if err == nil {
-			var exists bool
-			exists, err = lstatDirectory(expected)
-			if err == nil && exists {
-				err = validateRemovalAdmin(plan, expected)
-				state.admin = expected
+		marker := filepath.Join(state.targetStage, ".git")
+		if _, merr := os.Lstat(marker); errors.Is(merr, fs.ErrNotExist) {
+			// A partial deletion already removed the staged target's Git
+			// marker. The stage path is the saga's exact recorded rename
+			// target (fence-derived), which proves ownership without the
+			// marker; recovery finishes deleting it. The registration may
+			// still sit under its original name, so discovery continues.
+			state.admin, err = findRemovalAdmin(plan)
+		} else if merr != nil {
+			err = merr
+		} else {
+			var expected string
+			expected, err = parseRemovalAdminMarker(plan, marker)
+			if err == nil {
+				var exists bool
+				exists, err = lstatDirectory(expected)
+				if err == nil && exists {
+					err = validateRemovalAdmin(plan, expected)
+					state.admin = expected
+				}
 			}
 		}
 	default:
@@ -449,7 +482,7 @@ func performWorktreeRemovalEffect(plan *WorktreeRemovePlan, retainedBranch bool)
 	}
 	if adminStage != "" {
 		if err := os.RemoveAll(adminStage); err != nil {
-			return WorktreeRemoveCleanupRequired, err
+			return WorktreeRemoveCleanupRequired, fmt.Errorf("remove staged registration %s: %w", adminStage, err)
 		}
 		if err := syncRemovalDir(plan.RegistrationRoot); err != nil {
 			return WorktreeRemoveCleanupRequired, err
@@ -460,7 +493,7 @@ func performWorktreeRemovalEffect(plan *WorktreeRemovePlan, retainedBranch bool)
 	}
 	if targetStage != "" {
 		if err := os.RemoveAll(targetStage); err != nil {
-			return WorktreeRemoveCleanupRequired, err
+			return WorktreeRemoveCleanupRequired, fmt.Errorf("remove staged worktree %s: %w", targetStage, err)
 		}
 		if err := syncRemovalDir(filepath.Dir(plan.TargetPath)); err != nil {
 			return WorktreeRemoveCleanupRequired, err
@@ -475,7 +508,16 @@ func performWorktreeRemovalEffect(plan *WorktreeRemovePlan, retainedBranch bool)
 		return WorktreeRemoveCleanupRequired, err
 	}
 	if final.targetExists || final.admin != "" || final.targetStage != "" || final.adminStage != "" {
-		return WorktreeRemoveCleanupRequired, fmt.Errorf("worktree removal absence could not be proved")
+		residual := plan.TargetPath
+		switch {
+		case final.targetStage != "":
+			residual = final.targetStage
+		case final.adminStage != "":
+			residual = final.adminStage
+		case final.admin != "":
+			residual = final.admin
+		}
+		return WorktreeRemoveCleanupRequired, fmt.Errorf("worktree removal absence could not be proved: residual %s", residual)
 	}
 	if retainedBranch {
 		exists, err := worktreeBranchExists(plan.OwnerBoundary, plan.Branch)

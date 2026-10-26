@@ -22,6 +22,9 @@ func cmdBackup(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks backup <create|verify|restore> [options]")
+		return 0
 	case "create":
 		return cmdBackupCreate(args[1:], stdout, stderr)
 	case "verify":
@@ -39,23 +42,32 @@ func cmdBackupCreate(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("backup create", stderr)
 	var output string
 	var legacy bool
+	var adoptPath string
 	var jsonOut bool
 	fs.StringVar(&output, "output", "", "backup bundle output path (must end in .ntbackup)")
 	fs.BoolVar(&legacy, "legacy", false, "snapshot the exact legacy live.json instead of the SQLite authority")
+	fs.StringVar(&adoptPath, "adopt", "", "adopt one explicitly named retired-layout document instead of the SQLite authority")
 	fs.BoolVar(&jsonOut, "json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: noise-tasks backup create --output <bundle.ntbackup> [--legacy] [--json]")
+		fmt.Fprintln(stderr, "usage: noise-tasks backup create --output <bundle.ntbackup> [--legacy | --adopt <path>] [--json]")
 		return 2
 	}
 	if output == "" {
 		fmt.Fprintln(stderr, "noise-tasks: backup create requires --output <bundle.ntbackup>")
 		return 2
 	}
+	if legacy && adoptPath != "" {
+		fmt.Fprintln(stderr, "noise-tasks: backup create accepts one of --legacy or --adopt, not both")
+		return 2
+	}
 	if legacy {
 		return cmdBackupCreateLegacy(output, jsonOut, stdout, stderr)
+	}
+	if adoptPath != "" {
+		return cmdBackupCreateAdopt(output, adoptPath, jsonOut, stdout, stderr)
 	}
 	ps, err := openProjectStore()
 	if err != nil {
@@ -90,7 +102,7 @@ func cmdBackupVerify(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("backup verify", stderr)
 	var jsonOut bool
 	fs.BoolVar(&jsonOut, "json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -142,12 +154,68 @@ func cmdBackupCreateLegacy(output string, jsonOut bool, stdout, stderr io.Writer
 	storeDir := filepath.Join(commonCanon, "noise-tasks")
 	// Once apply has a durable journal, the original verified bundle and
 	// accepted plan are recovery inputs. A new legacy backup is not allowed
-	// to masquerade as recovery; only the matching apply advances the state.
+	// to masquerade as recovery; only the matching apply advances the state,
+	// and an adoption recovery journal fences this surface the same way
+	// (§8.6A).
 	if err := migrationJournalGate(filepath.Join(storeDir, store.StoreFile)); err != nil {
+		return fail(stderr, err)
+	}
+	if err := adoptionJournalGate(filepath.Join(storeDir, store.StoreFile)); err != nil {
 		return fail(stderr, err)
 	}
 	legacyPath := filepath.Join(commonCanon, "noise-tasks", store.LegacyFile)
 	manifest, err := store.CreateLegacyBackup(output, legacyPath, commonCanon, owner, "noise-tasks "+buildinfo.Version)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if jsonOut {
+		if err := writeJSON(stdout, manifest); err != nil {
+			return fail(stderr, err)
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "backup: %s\n", output)
+	fmt.Fprintf(stdout, "familyId: %s\n", manifest.FamilyID)
+	fmt.Fprintf(stdout, "payload: %s\n", manifest.PayloadDigest)
+	fmt.Fprintf(stdout, "semantic: %s\n", manifest.SemanticDigest)
+	fmt.Fprintf(stdout, "comparison: %s\n", manifest.ComparisonDigest)
+	return 0
+}
+
+// cmdBackupCreateAdopt snapshots one explicitly named retired-layout
+// document (SPEC §8.6A). It is context-aware — it resolves the repository
+// family's Git common directory and owner boundary — but it never opens,
+// requires, or publishes the current SQLite authority, and it never reads a
+// --file or a projection.
+func cmdBackupCreateAdopt(output, adoptPath string, jsonOut bool, stdout, stderr io.Writer) int {
+	_, boundary, err := backlog.ProjectContext()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	common, ok := backlog.GitCommonDir(boundary)
+	if !ok {
+		fmt.Fprintln(stderr, "noise-tasks: no Git repository; adoption requires a repository family")
+		return 1
+	}
+	commonCanon, err := canonicalizePath(common)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	owner, err := derivedOwnerBoundary(boundary)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	storeDir := filepath.Join(commonCanon, "noise-tasks")
+	// The verb refuses the states adoption never operates on (SPEC §8.6A):
+	// an existing store, either recovery journal, or the derived live.json.
+	if err := store.AdoptionFreshGate(storeDir); err != nil {
+		return fail(stderr, err)
+	}
+	layoutCanonical, err := store.ResolveAdoptionSource(adoptPath, owner, storeDir)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	manifest, err := store.CreateAdoptionBackup(output, layoutCanonical, commonCanon, owner, "noise-tasks "+buildinfo.Version)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -173,7 +241,7 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&offline, "offline", false, "acknowledge that all unsupported writers are stopped")
 	fs.StringVar(&requestID, "request-id", "", "operator request id for replay-safe restore")
 	fs.BoolVar(&jsonOut, "json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -200,6 +268,9 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	}
 	target, _ := store.Path(boundary)
 	if err := migrationJournalGate(target); err != nil {
+		return fail(stderr, err)
+	}
+	if err := adoptionJournalGate(target); err != nil {
 		return fail(stderr, err)
 	}
 	if err := outsideGitRehomingGate(boundary); err != nil {

@@ -531,6 +531,146 @@ func TestWorktreeProvisionCLIGrammarAndRefusals(t *testing.T) {
 	}
 }
 
+// TestWorktreeProvisionCLITaskIDArgumentHint pins the §9.4 task-id-mistake
+// diagnostic: when the positional argument names no run but does name a task,
+// the run-conflict refusal (exit 3, empty stdout) additionally names the
+// mistake and the task's current run id — scoped per tag, since several tags
+// reuse one bare id — and only then. When the number is both a valid run id
+// and a valid task id, the run wins and no hint appears.
+func TestWorktreeProvisionCLITaskIDArgumentHint(t *testing.T) {
+	dir := chdirWorktreeRepo(t)
+	// Tag main carries tasks 1–9 and tag other reuses ids 1–6, so ids 1–6 are
+	// ambiguous across tags while 7–9 are main-only. Runs 1–3 exist (main 9,
+	// main 6, other 6), so no argument below ever names a run.
+	seedProjectStore(t, dir, "main", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")
+	bumpProvisionFencing(t, dir)
+	db, err := store.Open(projectStorePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.EnsureTag("other"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 6; i++ {
+		if _, err := db.AddTask("other", &store.Task{Title: fmt.Sprintf("b%d", i), Status: "pending"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	startRun := func(tag, task, req string) (claimToken, attemptToken int64) {
+		t.Helper()
+		claim, _, _, err := db.AcquireClaim(tag, task, "agent-a", 3600, "claim.wt."+req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, replayed, err := db.StartRun(tag, task, "agent-a", claim.Token, "run.wt."+req, 3600)
+		if err != nil || replayed {
+			t.Fatalf("start run %s/%s = %+v replayed=%v err=%v", tag, task, run, replayed, err)
+		}
+		return claim.Token, run.AttemptToken
+	}
+	claim9, attempt9 := startRun("main", "9", "hint9") // run 1
+	startRun("main", "6", "hint6m")                    // run 2
+
+	args := provisionArgs(0, 1, 1, 1, "wt.hint")
+	cases := []struct {
+		name      string
+		arg       string
+		wantCode  int
+		wantIn    []string
+		wantNotIn []string
+	}{
+		{"single-tag id with live run", "9", 3, []string{
+			"run provision conflict: run 9",
+			"hint: 9 is a task id, not a run id; task 9's current run id is 1",
+		}, nil},
+		{"single-tag id with no run", "8", 3, []string{
+			"run provision conflict: run 8",
+			"hint: 8 is a task id, not a run id; task 8 has no current run",
+		}, []string{"current run id is"}},
+		{"reused id, live run in one tag", "6", 3, []string{
+			"run provision conflict: run 6",
+			"hint: 6 is a task id in tags main, other; task 6 in tag main has current run id 2; task 6 in tag other has no current run",
+		}, nil},
+		{"neither run nor task", "99", 3, []string{
+			"run provision conflict: run 99",
+		}, []string{"is a task id"}},
+	}
+	for _, tc := range cases {
+		tcArgs := append([]string(nil), args...)
+		tcArgs[1] = tc.arg
+		code, stdout, stderr := runCmd(cmdWorktree, tcArgs...)
+		if code != tc.wantCode || stdout != "" {
+			t.Fatalf("%s: exit %d stdout %q stderr %q (want code %d, empty stdout)", tc.name, code, stdout, stderr, tc.wantCode)
+		}
+		for _, want := range tc.wantIn {
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("%s: stderr %q missing %q", tc.name, stderr, want)
+			}
+		}
+		for _, banned := range tc.wantNotIn {
+			if strings.Contains(stderr, banned) {
+				t.Fatalf("%s: stderr %q must not contain %q", tc.name, stderr, banned)
+			}
+		}
+	}
+
+	// The second tag's task 6 goes live as run 3: the reused-id hint now names
+	// a live run for every tag.
+	startRun("other", "6", "hint6o")
+	hint6Args := []string{"provision", "6", "--owner", "agent-a", "--claim-token", "1",
+		"--attempt", "1", "--attempt-token", "1", "--request-id", "wt.hint6"}
+	code, stdout, stderr := runCmd(cmdWorktree, hint6Args...)
+	if code != 3 || stdout != "" {
+		t.Fatalf("reused id both live: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	want := "hint: 6 is a task id in tags main, other; " +
+		"task 6 in tag main has current run id 2; task 6 in tag other has current run id 3"
+	if !strings.Contains(stderr, want) {
+		t.Fatalf("reused id both live: stderr %q missing %q", stderr, want)
+	}
+
+	// --json carries the refusal and hint on stderr only.
+	code, stdout, stderr = runCmd(cmdWorktree, append(append([]string(nil), hint6Args...), "--json")...)
+	if code != 3 || stdout != "" {
+		t.Fatalf("json refusal: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	var conflict struct {
+		Kind      string `json:"kind"`
+		Operation string `json:"operation"`
+		RunID     int64  `json:"runId"`
+		Hint      string `json:"hint"`
+	}
+	if err := json.Unmarshal([]byte(stderr), &conflict); err != nil {
+		t.Fatalf("json refusal stderr %q: %v", stderr, err)
+	}
+	if conflict.Kind != "run-conflict" || conflict.Operation != "provision" || conflict.RunID != 6 ||
+		!strings.Contains(conflict.Hint, "task 6 in tag other has current run id 3") {
+		t.Fatalf("json refusal = %+v stderr %q", conflict, stderr)
+	}
+
+	// Both-valid: argument 1 names run 1 and task 1 in both tags; the run
+	// wins, provision proceeds for that run, and no hint appears anywhere.
+	code, stdout, stderr = runCmd(cmdWorktree, append(provisionArgs(1, claim9, attempt9, 1, "wt.both"), "--json")...)
+	if code != 0 || stderr != "" {
+		t.Fatalf("both-valid: exit %d stdout %q stderr %q (want bound success)", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"status": "bound"`) || strings.Contains(stdout, "task id") {
+		t.Fatalf("both-valid stdout %q", stdout)
+	}
+
+	// A hint-lookup failure must not soften the refusal: with the tasks
+	// table unreadable, the same argument keeps today's bare run conflict.
+	provisionExec(t, dir, `ALTER TABLE tasks RENAME TO tasks_unreadable`)
+	code, stdout, stderr = runCmd(cmdWorktree, append(append([]string(nil), hint6Args...), "--request-id", "wt.hintfail")...)
+	if code != 3 || stdout != "" {
+		t.Fatalf("hint lookup failure: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "run provision conflict: run 6") || strings.Contains(stderr, "is a task id") {
+		t.Fatalf("hint lookup failure: stderr %q", stderr)
+	}
+}
+
 func TestWorktreeProvisionCLIIgnoreAndBaseRefusals(t *testing.T) {
 	orig, err := os.Getwd()
 	if err != nil {

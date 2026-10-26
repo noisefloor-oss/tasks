@@ -12,6 +12,11 @@ import (
 )
 
 const worktreeSagaSchemaVersion = 5
+
+// WorktreeSagaSchemaVersion is the store schema version that introduced
+// the §9.4 worktree saga surface: the earliest store whose saga rows can
+// prove worktree ownership.
+const WorktreeSagaSchemaVersion = worktreeSagaSchemaVersion
 const ReceiptKindWorktree = "worktree"
 
 // worktreeSagaSchemaDDL is the exact additive schema-v5 catalog from SPEC

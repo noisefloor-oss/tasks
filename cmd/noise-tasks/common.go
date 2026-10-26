@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/noisefloor-oss/tasks/internal/backlog"
@@ -19,6 +21,7 @@ var (
 	errProjectNotInitialized = errors.New("project is not initialized; run noise tasks setup")
 	errLegacyJSONStore       = errors.New("legacy live store found; create a verified backup and run noise tasks migrate plan")
 	errMigrationRecovery     = errors.New("migration recovery required; rerun noise tasks migrate apply with the original plan and backup")
+	errAdoptionRecovery      = errors.New("adoption recovery required; rerun noise tasks migrate adopt apply with the original plan and backup")
 	errOutsideGitRehoming    = errors.New("existing outside-Git task store cannot be rehomed automatically; back it up and restore it into this repository family")
 )
 
@@ -55,6 +58,20 @@ func migrationJournalGate(storePath string) error {
 	return nil
 }
 
+// adoptionJournalGate is the adoption half of the §8.7 fencing: a valid
+// adoption journal with no published database is the recovery state only the
+// matching migrate adopt apply may advance.
+func adoptionJournalGate(storePath string) error {
+	adoption, err := store.ReadAdoptionRecovery(filepath.Dir(storePath))
+	if err != nil {
+		return fmt.Errorf("invalid adoption recovery journal: %w", err)
+	}
+	if adoption == store.RecoveryRequired {
+		return errAdoptionRecovery
+	}
+	return nil
+}
+
 // migrationProjectGate is the onboarding-strength recovery gate. In
 // addition to the recovery-required and structural checks, a published
 // target beside a journal must prove its exact plan-bound migration receipt
@@ -67,7 +84,14 @@ func migrationProjectGate(boundary, storePath string) error {
 	if recovery == store.RecoveryRequired {
 		return errMigrationRecovery
 	}
-	if recovery != store.RecoveryPublished {
+	adoption, err := store.ReadAdoptionRecovery(filepath.Dir(storePath))
+	if err != nil {
+		return fmt.Errorf("invalid adoption recovery journal: %w", err)
+	}
+	if adoption == store.RecoveryRequired {
+		return errAdoptionRecovery
+	}
+	if recovery != store.RecoveryPublished && adoption != store.RecoveryPublished {
 		return nil
 	}
 	owner, err := derivedOwnerBoundary(boundary)
@@ -79,8 +103,15 @@ func migrationProjectGate(boundary, storePath string) error {
 		return err
 	}
 	defer db.Close()
-	if err := store.ValidatePublishedMigrationRecovery(db, filepath.Dir(filepath.Dir(storePath)), owner); err != nil {
-		return fmt.Errorf("invalid published migration recovery state: %w", err)
+	if recovery == store.RecoveryPublished {
+		if err := store.ValidatePublishedMigrationRecovery(db, filepath.Dir(filepath.Dir(storePath)), owner); err != nil {
+			return fmt.Errorf("invalid published migration recovery state: %w", err)
+		}
+	}
+	if adoption == store.RecoveryPublished {
+		if err := store.ValidatePublishedAdoptionRecovery(db, filepath.Dir(filepath.Dir(storePath)), owner); err != nil {
+			return fmt.Errorf("invalid published adoption recovery state: %w", err)
+		}
 	}
 	return nil
 }
@@ -103,22 +134,36 @@ func newFlagSet(name string, stderr io.Writer, cf *commonFlags) *flag.FlagSet {
 func newCommandFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: noise-tasks %s [options]\n", name)
+		fs.PrintDefaults()
+	}
 	return fs
 }
 
 // parseFlags parses args and reports whether the command should proceed.
-// On -help it returns exit code 0; on a bad flag, 2. After a successful
-// parse it resolves any fencing-token -file twins, so one choke point
-// covers every command.
-func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0, false
-		}
+// On a help flag (-h, -help, --help) it prints the command's usage to
+// stdout and returns exit code 0; on a bad flag, 2. Parse output is
+// captured and routed per outcome, so help never leaks to stderr. After a
+// successful parse it resolves any fencing-token -file twins, so one choke
+// point covers every command.
+func parseFlags(fs *flag.FlagSet, stdout io.Writer, args []string) (code int, ok bool) {
+	output := fs.Output()
+	var parsed bytes.Buffer
+	fs.SetOutput(&parsed)
+	err := fs.Parse(args)
+	fs.SetOutput(output)
+	switch err {
+	case flag.ErrHelp:
+		fmt.Fprint(stdout, parsed.String())
+		return 0, false
+	case nil:
+	default:
+		fmt.Fprint(output, parsed.String())
 		return 2, false
 	}
 	if err := resolveTokenFileFlags(fs); err != nil {
-		fmt.Fprintln(fs.Output(), "noise-tasks: "+err.Error())
+		fmt.Fprintln(output, "noise-tasks: "+err.Error())
 		return 2, false
 	}
 	return 0, true
@@ -149,13 +194,21 @@ func openProjectStoreAt(boundary string) (*projectStore, error) {
 	path, _ := store.Path(boundary)
 	// A matching recovery journal takes precedence over the legacy-found
 	// refusal and every missing-state/onboarding diagnostic (§8.7); a
-	// malformed journal fails closed even with a database present.
+	// malformed journal fails closed even with a database present. An
+	// adoption recovery journal takes the same precedence (§8.6A).
 	recovery, recoveryErr := store.ReadMigrationRecovery(filepath.Dir(path))
 	if recoveryErr != nil {
 		return nil, fmt.Errorf("invalid migration recovery journal: %w", recoveryErr)
 	}
 	if recovery == store.RecoveryRequired {
 		return nil, errMigrationRecovery
+	}
+	adoption, adoptionErr := store.ReadAdoptionRecovery(filepath.Dir(path))
+	if adoptionErr != nil {
+		return nil, fmt.Errorf("invalid adoption recovery journal: %w", adoptionErr)
+	}
+	if adoption == store.RecoveryRequired {
+		return nil, errAdoptionRecovery
 	}
 	if err := migrationJournalGate(path); err != nil {
 		return nil, err
@@ -191,6 +244,12 @@ func openProjectStoreAt(boundary string) (*projectStore, error) {
 		if err := store.ValidatePublishedMigrationRecovery(db, filepath.Dir(filepath.Dir(path)), owner); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("invalid published migration recovery state: %w", err)
+		}
+	}
+	if adoption == store.RecoveryPublished {
+		if err := store.ValidatePublishedAdoptionRecovery(db, filepath.Dir(filepath.Dir(path)), owner); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("invalid published adoption recovery state: %w", err)
 		}
 	}
 	// §8.2 normal-open gate: configure the derived canonical owner for a
@@ -341,6 +400,7 @@ func storeToBacklogTask(t *store.Task) (*backlog.Task, error) {
 		Status:       t.Status,
 		Priority:     t.Priority,
 		Milestone:    t.Milestone,
+		Link:         t.Link,
 		Dependencies: t.Dependencies,
 		Subtasks:     subtasks,
 		UpdatedAt:    t.UpdatedAt,
@@ -392,9 +452,26 @@ type taskOut struct {
 	Status       string            `json:"status"`
 	Priority     string            `json:"priority"`
 	Milestone    string            `json:"milestone"`
+	ExternalLink *externalLinkOut  `json:"externalLink"`
 	Dependencies []string          `json:"dependencies"`
 	Subtasks     []json.RawMessage `json:"subtasks"`
 	UpdatedAt    string            `json:"updatedAt"`
+}
+
+// externalLinkOut is the machine-readable externalLink member (SPEC §4):
+// always present on task output — null when unset — with the issue
+// rendered as the §1 string form.
+type externalLinkOut struct {
+	Family     string `json:"family"`
+	Repository string `json:"repository"`
+	Issue      string `json:"issue"`
+}
+
+func toExternalLinkOut(l *backlog.ExternalLink) externalLinkOut {
+	if l == nil {
+		return externalLinkOut{}
+	}
+	return externalLinkOut{Family: l.Family, Repository: l.Repository, Issue: strconv.FormatInt(l.Issue, 10)}
 }
 
 // subtaskOut is the stable machine-readable shape for `show parent.child`.
@@ -435,6 +512,7 @@ func toTaskOut(t *backlog.Task) taskOut {
 		Status:       t.Status,
 		Priority:     effectivePriority(t.Priority),
 		Milestone:    t.Milestone,
+		ExternalLink: toExternalLinkOutPtr(t.Link),
 		Dependencies: t.Dependencies,
 		Subtasks:     t.Subtasks,
 		UpdatedAt:    t.UpdatedAt,
@@ -446,6 +524,15 @@ func toTaskOut(t *backlog.Task) taskOut {
 		out.Subtasks = []json.RawMessage{}
 	}
 	return out
+}
+
+// toExternalLinkOutPtr renders an unset link as the JSON null member.
+func toExternalLinkOutPtr(l *backlog.ExternalLink) *externalLinkOut {
+	if l == nil {
+		return nil
+	}
+	out := toExternalLinkOut(l)
+	return &out
 }
 
 func toSubtaskOut(subtask *backlog.Subtask) subtaskOut {
@@ -493,6 +580,9 @@ func printTask(w io.Writer, t *backlog.Task) {
 	fmt.Fprintf(w, "priority:     %s\n", effectivePriority(t.Priority))
 	if t.Milestone != "" {
 		fmt.Fprintf(w, "milestone:    %s\n", t.Milestone)
+	}
+	if t.Link != nil {
+		fmt.Fprintf(w, "externalLink: %s\n", t.Link.String())
 	}
 	fmt.Fprintf(w, "dependencies: %s\n", depsString(t.Dependencies))
 	if t.UpdatedAt != "" {

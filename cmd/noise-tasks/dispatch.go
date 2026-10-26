@@ -121,7 +121,7 @@ func cmdDispatchPrepare(args []string, stdout, stderr io.Writer) int {
 	milestoneF := fs.String("milestone", "", "restrict candidates to this milestone")
 	assignmentF := fs.String("assignment", "", "restrict candidates to tasks assigned to this owner")
 	rootF := fs.String("request-id", "", "root request id derivation seed")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -340,7 +340,7 @@ func cmdDispatchReconcile(args []string, stdout, stderr io.Writer) int {
 	decimalInt64Var(fs, &sagaToken, "saga-token", "private saga fence token")
 	recoverF := fs.String("recover-request-id", "", "advertised or terminalizing recovery request id")
 	rootF := fs.String("root-request-id", "", "root request id derivation seed")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if cf.file != "" {

@@ -337,8 +337,8 @@ type schemaObject struct {
 const sqliteSequenceSQL = "CREATE TABLE sqlite_sequence(name,seq)"
 
 // schemaObjectsByVersion returns the exact binary-owned catalogs admitted for
-// released payload schemas. v2 through v4 are retained so old bundles can be
-// verified context-free; v5 is the current schema. Each admits both fresh and
+// released payload schemas. v2 through v5 are retained so old bundles can be
+// verified context-free; v6 is the current schema. Each admits both fresh and
 // v1-upgraded tasks-table SQL, whose record_extra column order differs.
 var schemaObjectsByVersion = sync.OnceValues(func() (map[int]map[string][]schemaObject, error) {
 	build := func(version int) (map[string][]schemaObject, error) {
@@ -351,6 +351,8 @@ var schemaObjectsByVersion = sync.OnceValues(func() (map[int]map[string][]schema
 		case runSchemaVersion:
 			freshDDL = schemaV2DDL + orchestratorSchemaDDL + runSchemaDDL
 		case worktreeSagaSchemaVersion:
+			freshDDL = schemaV5DDL
+		case externalLinkSchemaVersion:
 			freshDDL = schemaDDL
 		default:
 			return nil, fmt.Errorf("build schema-v%d reference: unsupported version", version)
@@ -377,6 +379,9 @@ var schemaObjectsByVersion = sync.OnceValues(func() (map[int]map[string][]schema
 		}
 		if version >= worktreeSagaSchemaVersion {
 			steps = append(steps, upgradeV5DDL)
+		}
+		if version >= externalLinkSchemaVersion {
+			steps = append(steps, upgradeV6DDL)
 		}
 		for _, q := range steps {
 			if _, err := upgraded.Exec(q); err != nil {
@@ -416,11 +421,16 @@ var schemaObjectsByVersion = sync.OnceValues(func() (map[int]map[string][]schema
 	if err != nil {
 		return nil, err
 	}
+	v6, err := build(externalLinkSchemaVersion)
+	if err != nil {
+		return nil, err
+	}
 	return map[int]map[string][]schemaObject{
 		identitySchemaVersion:     v2,
 		orchestratorSchemaVersion: v3,
 		runSchemaVersion:          v4,
 		worktreeSagaSchemaVersion: v5,
+		externalLinkSchemaVersion: v6,
 	}, nil
 })
 
@@ -644,9 +654,9 @@ func verifyBundle(bundlePath, stageTo string) (*Manifest, error) {
 	if int64(version) != int64(manifest.CurrentSchemaVersion) {
 		return nil, bundleErrorf("payload schema %d does not match manifest currentSchemaVersion %d", version, manifest.CurrentSchemaVersion)
 	}
-	if manifest.SourceKind == SourceKindLegacyJSON {
-		// A legacy bundle's payload is a supported SQLite image; the
-		// legacy sourceSchema names the JSON document, not the payload.
+	if manifest.SourceKind == SourceKindLegacyJSON || manifest.SourceKind == SourceKindAdoptedJSON {
+		// A legacy or adoption bundle's payload is a supported SQLite image;
+		// the sourceSchema names the JSON document, not the payload.
 	} else if "sqlite:"+strconv.Itoa(version) != manifest.SourceSchema {
 		return nil, bundleErrorf("payload schema %d does not match manifest source schema %s", version, manifest.SourceSchema)
 	}
@@ -860,6 +870,14 @@ func validateManifest(obj map[string]any) (*Manifest, error) {
 		}
 		if m.SourceSchema != LegacySourceSchema {
 			return nil, bundleErrorf("legacy source schema %q is not %s", m.SourceSchema, LegacySourceSchema)
+		}
+		sourceVersion = 1
+	case SourceKindAdoptedJSON:
+		if m.SourceSchema, err = strField("sourceSchema"); err != nil {
+			return nil, err
+		}
+		if m.SourceSchema != AdoptionSourceSchema {
+			return nil, bundleErrorf("adopted source schema %q is not %s", m.SourceSchema, AdoptionSourceSchema)
 		}
 		sourceVersion = 1
 	default:

@@ -23,6 +23,9 @@ func cmdMilestone(args []string, stdout, stderr io.Writer) int {
 	sub := args[0]
 	rest := args[1:]
 	switch sub {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks milestone <add|list|close|reopen|remove> [options] <name>")
+		return 0
 	case "add":
 		return cmdMilestoneAdd(rest, stdout, stderr)
 	case "list":
@@ -85,7 +88,7 @@ func milestoneInUseOut(e *backlog.ErrMilestoneInUse) any {
 func cmdMilestoneAdd(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("milestone add", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -133,7 +136,7 @@ type milestoneRollup struct {
 func cmdMilestoneList(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("milestone list", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -216,7 +219,7 @@ func writeMilestoneJSON(stdout, stderr io.Writer, value any) int {
 func cmdMilestoneFlip(sub string, args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("milestone "+sub, stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -267,7 +270,7 @@ func cmdMilestoneRemove(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("milestone remove", stderr, &cf)
 	forceF := fs.Bool("force", false, "also clear the milestone from referencing tasks")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -325,7 +328,7 @@ func cmdSetMilestone(args []string, stdout, stderr io.Writer) int {
 	var rf taskMutationRunFlags
 	rf.register(fs)
 	clearF := fs.Bool("clear", false, "remove the task's milestone assignment")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	var id string

@@ -24,14 +24,16 @@ import (
 // SchemaVersion is the schema version this binary owns, recorded in
 // PRAGMA user_version (SPEC §8.2). Version 2 added immutable identity and
 // receipts; version 3 adds the §9.2 plans, mappings, and assignments; version
-// 4 adds the §9.3 runs and attempts; version 5 adds recoverable worktree sagas.
-const SchemaVersion = 5
+// 4 adds the §9.3 runs and attempts; version 5 adds recoverable worktree
+// sagas; version 6 adds the §1 external-link columns and their unique index.
+const SchemaVersion = 6
 
 const (
 	identitySchemaVersion     = 2
 	recordExtraSchemaVersion  = 2
 	orchestratorSchemaVersion = 3
 	runSchemaVersion          = 4
+	externalLinkSchemaVersion = 6
 )
 
 // MaxRetainedEvents bounds the change-feed retention window (SPEC §8.4).
@@ -530,7 +532,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS receipts_request_id
 	ON receipts(kind, request_id) WHERE request_id IS NOT NULL;
 `
 
-const schemaDDL = schemaV2DDL + orchestratorSchemaDDL + runSchemaDDL + worktreeSagaSchemaDDL
+// externalLinkSchemaDDL is exactly the additive v5→v6 external-link delta:
+// the three link columns on tasks and the store-wide unique index on the
+// (family, repository, issue) triple — §3's uniqueness mechanism, enforced
+// inside every writing transaction. Fresh and upgraded stores apply it in
+// the same position (appended after wt_extra), so their catalogs agree.
+const externalLinkSchemaDDL = `
+ALTER TABLE tasks ADD COLUMN link_family TEXT;
+ALTER TABLE tasks ADD COLUMN link_repository TEXT;
+ALTER TABLE tasks ADD COLUMN link_issue INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_external_link
+	ON tasks(link_family, link_repository, link_issue)
+	WHERE link_family IS NOT NULL AND link_repository IS NOT NULL AND link_issue IS NOT NULL;
+`
+
+// schemaV5DDL is the exact v5 catalog (the schema written by the preceding
+// released binary), retained for mixed-version backup verification.
+const schemaV5DDL = schemaV2DDL + orchestratorSchemaDDL + runSchemaDDL + worktreeSagaSchemaDDL
+
+const schemaDDL = schemaV5DDL + externalLinkSchemaDDL
 
 // Close closes the SQLite handle and only then releases the shared
 // maintenance lock.
@@ -616,7 +636,7 @@ func (d *DB) SetOwnerBoundary(owner string) error {
 	return nil
 }
 
-// maybeUpgrade applies the transactional v1→v2→v3→v4→v5 migrations when the open
+// maybeUpgrade applies the transactional v1→v2→v3→v4→v5→v6 migrations when the open
 // database predates this binary's schema (SPEC §8.2/§8.7: earlier releases'
 // databases are upgraded transactionally; the upgrade preserves tasks,
 // revisions, counters, milestones, claims, fencing values, and events). The
@@ -711,6 +731,17 @@ func (d *DB) maybeUpgrade(ownerBoundary string) error {
 				return fmt.Errorf("validate upgraded worktree saga state: %w", err)
 			}
 		}
+		if version < externalLinkSchemaVersion {
+			if err := t.ensureIdentity(ownerBoundary); err != nil {
+				return err
+			}
+			if _, err := t.Exec(upgradeV6DDL); err != nil {
+				return fmt.Errorf("upgrade task store schema v5 to v6: %w", err)
+			}
+			if _, err := t.Exec("PRAGMA user_version=6"); err != nil {
+				return fmt.Errorf("set task store schema version 6: %w", err)
+			}
+		}
 		return t.appendEvent(Event{Kind: "schema", Action: "upgraded", At: nowUTC()})
 	})
 }
@@ -742,6 +773,9 @@ const upgradeV4DDL = runSchemaDDL
 
 // upgradeV5DDL is the additive v4→v5 recoverable-worktree schema migration.
 const upgradeV5DDL = worktreeSagaSchemaDDL
+
+// upgradeV6DDL is the additive v5→v6 external-link schema migration.
+const upgradeV6DDL = externalLinkSchemaDDL
 
 // useLegacyClaimAcquisitionIDs selects the deterministic claim-id derivation
 // required while privately upgrading an exact legacy-source v3 bundle. It

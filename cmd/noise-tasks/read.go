@@ -23,7 +23,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	statusF := fs.String("status", "", "filter by status")
 	priorityF := fs.String("priority", "", "filter by priority")
 	milestoneF := fs.String("milestone", "", "filter by milestone")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -168,7 +168,7 @@ func cmdNext(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("next", stderr, &cf)
 	milestoneF := fs.String("milestone", "", "restrict candidates to this milestone")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -400,7 +400,7 @@ func idLess(a, b string) bool {
 func cmdShow(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("show", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {

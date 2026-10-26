@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -510,4 +511,125 @@ func TestValidateRemovalEffectIdentityExactIDShapes(t *testing.T) {
 			t.Fatal("registration lost by refused effect")
 		}
 	})
+}
+
+// stageDegradedQuarantine reproduces the stuck cleanup-required shape of SPEC
+// §9.4: a partial deletion already removed the staged target's .git marker and
+// the staged registration, while undeletable content may remain inside the
+// saga-named quarantine directory.
+func stageDegradedQuarantine(t *testing.T, plan *WorktreeRemovePlan, residual bool) string {
+	t.Helper()
+	admin := removalAdminDir(t, plan)
+	stage := removalTargetStage(plan)
+	if err := os.Rename(plan.TargetPath, stage); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(stage, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	adminStage := removalAdminStage(plan, admin)
+	if err := os.Rename(admin, adminStage); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(adminStage); err != nil {
+		t.Fatal(err)
+	}
+	if residual {
+		dir := filepath.Join(stage, "deploy", "__pycache__")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "app.cpython-312.pyc"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// A read-only quarantine directory denies unlink to the invoking
+		// (non-root) test principal — the portable EACCES stand-in for a
+		// root-owned residual the host may never chown or chmod.
+		if err := os.Chmod(stage, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(stage, 0o755) })
+	}
+	return stage
+}
+
+// TestPerformWorktreeRemovalEffectQuarantineGitGoneCompletes pins the §9.4
+// idempotent replay when the quarantine directory has already lost its .git:
+// the saga-named stage path is the ownership proof, the effect finishes the
+// deletion, and the saga finalizes removed.
+func TestPerformWorktreeRemovalEffectQuarantineGitGoneCompletes(t *testing.T) {
+	db, _, options, plan := removalEffectFixture(t, "gitgone", false)
+	stage := stageDegradedQuarantine(t, plan, false)
+	outcome, err := PerformWorktreeRemovalEffect(plan)
+	if outcome != WorktreeRemoveRemoved || err != nil {
+		t.Fatalf("effect = %q, %v", outcome, err)
+	}
+	if _, err := os.Lstat(stage); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("quarantine still exists: %v", err)
+	}
+	result, err := db.FinalizeWorktreeRemoval(plan, outcome)
+	if err != nil || result.Status != "removed" {
+		t.Fatalf("finalize = %+v, %v", result, err)
+	}
+	if err := db.ValidateWorktreeSagaState(); err != nil {
+		t.Fatalf("validate removed state = %v", err)
+	}
+	if _, err := db.PlanWorktreeRemoval(options); err != nil {
+		t.Fatalf("request replay after exact removal = %v", err)
+	}
+}
+
+// TestPerformWorktreeRemovalEffectQuarantineResidualKeepsCleanup pins the
+// §9.4 residual contract: when the .git-less quarantine still holds an
+// undeletable file, replay never fails with a missing-marker error, never
+// changes ownership or permissions, reports the named residual path with its
+// permission error, and keeps the actionable cleanup-required recovery state.
+func TestPerformWorktreeRemovalEffectQuarantineResidualKeepsCleanup(t *testing.T) {
+	db, _, _, plan := removalEffectFixture(t, "residual", false)
+	stage := stageDegradedQuarantine(t, plan, true)
+	outcome, err := PerformWorktreeRemovalEffect(plan)
+	if outcome != WorktreeRemoveCleanupRequired || err == nil {
+		t.Fatalf("effect = %q, %v", outcome, err)
+	}
+	if !strings.Contains(err.Error(), stage) {
+		t.Fatalf("effect error does not name the residual path %s: %v", stage, err)
+	}
+	if !permissionClass(err) {
+		t.Fatalf("effect error is not a permission error: %v", err)
+	}
+	if info, lerr := os.Lstat(stage); lerr != nil || !info.IsDir() {
+		t.Fatalf("residual quarantine was modified or removed: %v", lerr)
+	}
+	// The ownership and permissions of the residual are untouched.
+	if mode := fileInfoMode(t, stage); mode != 0o555 {
+		t.Fatalf("quarantine mode changed to %o", mode)
+	}
+	result, err := db.FinalizeWorktreeRemoval(plan, outcome)
+	if err != nil || result.Status != "cleanup-required" || result.RecoverRequestID == nil {
+		t.Fatalf("finalize = %+v, %v", result, err)
+	}
+	// Once the operator clears the permission barrier, the identical
+	// recovery replay completes the removal and terminalizes the saga.
+	if err := os.Chmod(stage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recon, rerr := recoveryReconcile(t, db, plan.OwnerBoundary, plan.SagaID, 1)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if recon.Result == nil || recon.Result.Status != "removed" {
+		t.Fatalf("recovery result = %+v, %v", recon.Result, rerr)
+	}
+	if err := db.ValidateWorktreeSagaState(); err != nil {
+		t.Fatalf("validate state = %v", err)
+	}
+}
+
+func fileInfoMode(t *testing.T, path string) fs.FileMode {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
 }

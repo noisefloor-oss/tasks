@@ -93,7 +93,7 @@ func Restore(bundlePath, targetPath string, opts RestoreOptions) (*RestoreResult
 	// Restore is never an alternate cutover path (SPEC §8.5). Checked only
 	// after the exclusive lock is held so a cooperating migration cannot
 	// create a fence between the check and lock acquisition.
-	for _, fence := range []string{MigrationJournalFile, LegacyFile} {
+	for _, fence := range []string{MigrationJournalFile, AdoptionJournalFile, LegacyFile} {
 		if _, err := os.Lstat(filepath.Join(storeDir, fence)); err == nil {
 			return nil, fmt.Errorf("restore refused: %s exists in %s; restore is not a migration cutover path", fence, storeDir)
 		} else if !errors.Is(err, os.ErrNotExist) {

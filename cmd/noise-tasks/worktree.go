@@ -19,6 +19,9 @@ func cmdWorktree(args []string, stdout, stderr io.Writer) int {
 	sub := args[0]
 	rest := args[1:]
 	switch sub {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks worktree <provision|list|remove|recover|prune> [options]")
+		return 0
 	case "provision":
 		return cmdWorktreeProvision(rest, stdout, stderr)
 	case "recover":
@@ -133,7 +136,7 @@ func cmdWorktreeRemove(args []string, stdout, stderr io.Writer) int {
 	var capability runCapabilityFlags
 	capability.register(fs, false)
 	force := fs.Bool("force", false, "remove a dirty worktree")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if cf.file != "" {
@@ -253,8 +256,13 @@ func writeWorktreeRemoveResult(stdout, stderr io.Writer, jsonOut bool, result *s
 	case "cleanup-required":
 		// §9.4: a cleanup-required result — fresh or exact replay — is the
 		// exit-0 mutation result under --json; human invocation is exit 1
-		// with empty stdout and exactly the pinned line on stderr.
+		// with empty stdout and exactly the pinned line on stderr. Under
+		// --json a bounded observation cause — e.g. a residual quarantine
+		// path with its permission error — is stderr-only.
 		if jsonOut {
+			if cause != nil {
+				fmt.Fprintln(stderr, "noise-tasks: "+boundedDiagnostic(cause.Error()))
+			}
 			return 0
 		}
 		fmt.Fprintln(stderr, "noise-tasks: worktree cleanup is required")
@@ -279,7 +287,7 @@ func writeWorktreeRemoveResult(stdout, stderr io.Writer, jsonOut bool, result *s
 func cmdWorktreeList(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("worktree list", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -352,7 +360,7 @@ type pruneResultOut struct {
 func cmdWorktreePrune(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("worktree prune", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {

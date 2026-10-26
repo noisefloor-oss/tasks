@@ -21,7 +21,7 @@ import (
 func cmdInit(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newFlagSet("init", stderr, &cf)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -134,7 +134,8 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 	priorityF := fs.String("priority", "", "high|medium|low (default: absent, treated as medium)")
 	depsF := fs.String("dependencies", "", "comma-separated ids of prerequisite tasks")
 	milestoneF := fs.String("milestone", "", "assign the new task to this milestone")
-	if code, ok := parseFlags(fs, args); !ok {
+	linkF := fs.String("link", "", "set-once external link <family>/<repository>#<issue>")
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -150,6 +151,14 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	deps := splitDeps(*depsF)
+	var link *backlog.ExternalLink
+	if *linkF != "" {
+		parsed, err := backlog.ParseExternalLinkText(*linkF)
+		if err != nil {
+			return reportLinkError(stderr, cf.json, err)
+		}
+		link = parsed
+	}
 
 	var id string
 	if cf.file != "" {
@@ -171,6 +180,18 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 					return &backlog.ErrMilestoneNotFound{Tag: tag, Name: *milestoneF}
 				}
 			}
+			// A link already carried by a task of this tag makes the add a
+			// replay (SPEC §4): return the existing id and write nothing.
+			// A holder in another tag is a typed conflict.
+			if link != nil {
+				if holderTag, existingID, ok := f.FindTaskByLink(*link); ok {
+					if holderTag != tag {
+						return &backlog.ErrLinkExists{Link: *link, ExistingTag: holderTag, ExistingID: existingID}
+					}
+					id = existingID
+					return nil
+				}
+			}
 			var err error
 			id, err = f.AddTask(tag, backlog.Task{
 				Title:        *titleF,
@@ -180,10 +201,17 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 				Priority:     *priorityF,
 				Dependencies: deps,
 				Milestone:    *milestoneF,
+				Link:         link,
 			})
 			return err
 		})
 		if err != nil {
+			// A link conflict (cross-tag replay, set-once) is typed
+			// (exit 3); other failures keep the milestone mapping.
+			var linkExists *backlog.ErrLinkExists
+			if errors.As(err, &linkExists) {
+				return reportLinkError(stderr, cf.json, err)
+			}
 			return reportMilestoneError(stderr, cf.json, err)
 		}
 	} else {
@@ -207,8 +235,15 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 			Priority:     *priorityF,
 			Dependencies: deps,
 			Milestone:    *milestoneF,
+			Link:         link,
 		})
 		if err != nil {
+			// A cross-tag link replay is a typed link conflict (exit 3);
+			// every other failure keeps the milestone reporter's mapping.
+			var linkExists *store.LinkExistsConflict
+			if errors.As(err, &linkExists) {
+				return reportLinkError(stderr, cf.json, err)
+			}
 			return reportMilestoneError(stderr, cf.json, err)
 		}
 	}
@@ -244,7 +279,7 @@ func cmdSetStatus(args []string, stdout, stderr io.Writer) int {
 	lf.registerRemovedKeepWorktree(fs)
 	var rf taskMutationRunFlags
 	rf.register(fs)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 2 {
@@ -338,7 +373,7 @@ func cmdAppend(args []string, stdout, stderr io.Writer) int {
 	lf.register(fs)
 	var rf taskMutationRunFlags
 	rf.register(fs)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 2 {
@@ -423,7 +458,7 @@ func cmdRemove(args []string, stdout, stderr io.Writer) int {
 	lf.register(fs)
 	var rf taskMutationRunFlags
 	rf.register(fs)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {

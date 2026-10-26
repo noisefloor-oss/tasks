@@ -67,16 +67,22 @@ var allowedHits = []exception{
 	{"internal/store/backup_test.go", `(?i)^task [12]$`, "backup fixture diagnostics"},
 	{"internal/store/legacy_test.go", `(?i)^` + "task" + ` 1$`, "restore fixture assertions"},
 	{"internal/store/orchestrator_plan_test.go", `(?i)^task [23]$`, "plan fixture assertions"},
+	{"internal/store/run_read_test.go", `(?i)^task [123]$`, "per-tag hint fixture assertions"},
 	{"internal/store/claim_fence_test.go", `(?i)^` + "task" + `-1$`, "synthetic branch name"},
 	{"cmd/noise-tasks/write_test.go", `(?i)^task [12]$`, "CLI fixture assertions and fixture structure comments"},
 	{"cmd/noise-tasks/worktree_remove_test.go", `(?i)^` + "task" + ` 2$`, "CLI fixture assertion"},
 	{"cmd/noise-tasks/worktree_prune_test.go", `(?i)^` + "task" + ` 1$`, "documents the task provisioned by the fixture helper"},
 	{"cmd/noise-tasks/hygiene_test.go", `(?i)^task [13]$`, "documents claim and run fixtures"},
+	{"cmd/noise-tasks/hygiene_worktree_test.go", `(?i)^` + "task" + ` 1$`, "hygiene worktree fixture assertions and ownership comments"},
 	{"cmd/noise-tasks/claimnext_test.go", `(?i)^task [12]$`, "claim fixture assertions and dependency comments"},
 	{"cmd/noise-tasks/verify_test.go", `(?i)^task [123]$`, "CLI fixture assertions and fixture edits"},
 	{"cmd/noise-tasks/milestone_test.go", `(?i)^task [24]$`, "milestone fixture assertions and dependency comments"},
 	{"cmd/noise-tasks/read_test.go", `(?i)^task [123]$`, "CLI fixture assertions and dependency comments"},
+	{"cmd/noise-tasks/worktree_provision_test.go", `(?i)^task [1689]$`, "per-tag hint fixture assertions"},
 	{"cmd/noise-tasks/token_file_test.go", `(?i)^` + "task" + ` 1$`, "documents the task claimed by the fixture helper"},
+	{"internal/backlog/link_test.go", `(?i)^` + "task" + ` 1$`, "external-link fixture assertions"},
+	{"cmd/noise-tasks/link_test.go", `(?i)^` + "task" + ` [17]$`, "external-link CLI fixture assertions"},
+	{"cmd/noise-tasks/ensure_test.go", `(?i)^task [12]$`, "ensure CLI fixture assertions"},
 }
 
 type member struct {

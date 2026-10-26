@@ -16,7 +16,10 @@ under expiring leases with fencing tokens, every mutation of an existing
 task is compare-and-swap on its revision, and claims, runs, plan
 applications, and worktree operations commit immutable receipts into the
 same database. A content-free change feed, versioned backups with a one-way
-cutover from the retired JSON layouts, atomic orchestration plans, and
+cutover from the retired JSON layouts (`migrate` for the derived
+`live.json`, `migrate adopt` for a retired `.tasks`/`.noisetask`/
+`.taskmaster` layout into a fresh store; see
+[MIGRATION.md](MIGRATION.md)), atomic orchestration plans, and
 task-bound Git worktrees complete the engine. Machine consumers use the
 `--json` surfaces and the versioned `context --json` contract rather than
 reproducing discovery.
@@ -51,6 +54,56 @@ noise-tasks set-status --owner you --token 1 --revision 2 1 done
 noise-tasks next        # the dependent task is now ready
 ```
 
+Tasks may carry a set-once external link naming the source issue they
+track — `family/repository#issue`. The link is unique across the store,
+so replaying the same `add --link` returns the existing task instead of
+duplicating it, and `set-link` assigns one under the same
+compare-and-swap rule as every field mutation:
+
+```sh
+noise-tasks add --title "Fix crash on import" --link github/acme/widgets#214
+noise-tasks set-link --revision 3 7 github/acme/widgets#215
+```
+
+Issue-driven work has one documented happy path: `ensure` the linked
+task from the repository issue (the caller supplies the title and body;
+the CLI does no network and never syncs later issue edits), then claim,
+`run start`, and `worktree provision` as usual. It is idempotent by the
+link's uniqueness — an importer and an agent racing on one issue get one
+task, and the replay returns the existing task without writing:
+
+```sh
+noise-tasks ensure --repo acme/widgets --issue 214 \
+  --title "Fix crash on import" --description "Importing an empty file crashes."
+# created the linked task for github/acme/widgets#214
+# (a replay prints: the same task already tracks the link, no second write)
+```
+
 `noise-tasks release --owner you --token 1 1` drops a claim; setting status
-`done` clears it. `noise-tasks --help` lists every command, and
-`noise-tasks <command> -help` shows its flags.
+`done` clears it. `noise-tasks --help` (also `-h` and `-help`) lists every
+command, and `noise-tasks <command> -h`, `-help`, or `--help` shows that
+command's — or command group's — usage on stdout; help always exits 0.
+
+`noise-tasks hygiene` is the read-only fleet report: stale runs, expired
+claims, and claimless in-progress tasks from the task store, plus every
+Git-registered worktree the engine does not own (path, branch or detached
+head, existence, dirtiness — review checkouts anywhere on disk, not just
+under `.worktrees/`) and the primary checkout's state when it is detached
+or off the default branch (`origin/HEAD`, falling back to `main`). It
+only reports; it never deletes, checks out, or writes anything (status
+probes run `--no-optional-locks`, so no index is ever refreshed). The
+worktree classes need Git 2.36+. `--json` prints the versioned schema
+from SPEC §8.9.
+
+`noise-tasks doctor [--root <dir>]` walks a workspace and inventories
+every repository family it finds: store presence and schema, retired
+layout residue, and — per initialized family — the hard finding of every
+Git-registered worktree no worktree saga row names (path, branch or
+detached head, existence, dirtiness), the same ownership judgment
+`hygiene` makes: evidence that work bypassed the engine's
+`run start` + `worktree provision` flow. Findings and per-family
+failures alike are report-only: a family whose worktree evidence cannot
+be read carries an `unboundWorktreesError` instead, every other family
+still reports, and `doctor` exits 0 either way. It never mutates; the
+worktree class needs Git 2.36+. `--json` prints the versioned schema
+from SPEC §2.4.

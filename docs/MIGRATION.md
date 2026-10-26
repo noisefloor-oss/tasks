@@ -137,6 +137,56 @@ would have committed (or keep a fixture snapshot in a PR) and run
 `noise-tasks verify --file <snapshot> --against <ref>`. Authoritative
 integrity is `verify` against the database itself.
 
+## 1A. One-way adoption of a retired layout (`migrate adopt`)
+
+Families that never had the derived `live.json` — a repo whose only task
+history is `.tasks/tasks/tasks.json`, `.noisetask/tasks.json`, or
+`.taskmaster/tasks/tasks.json` — cut over with adoption (SPEC §8.6A). It is
+offline, one-way, and operator-explicit: no discovery ever picks a layout,
+bundle creation and planning refuse when `tasks.sqlite`, either recovery
+journal, or the derived `live.json` already exists, and apply refuses a
+`tasks.sqlite` that is not its proven adoption target, a §8.6 recovery
+journal, and the derived `live.json`, resuming only its own matching
+adoption journal.
+
+### 1. Create and verify the adoption bundle
+
+```sh
+noise-tasks backup create --adopt .tasks/tasks/tasks.json \
+  --output /safe/path/family.ntbackup --json
+noise-tasks backup verify --json /safe/path/family.ntbackup
+```
+
+The layout path must resolve inside the owner boundary; a sole legacy
+`master` tag keeps its name, ids (including non-dense ranges) are preserved,
+every tag seeds `nextId` to `max(id)+1`, all seven statuses, dependencies,
+subtasks, unknown fields, and `updatedAt` values round-trip verbatim, and a
+missing dependency target or a cycle is a typed refusal. The manifest
+records source kind `adopted-json`.
+
+### 2. Plan and apply
+
+```sh
+noise-tasks migrate adopt plan --layout .tasks/tasks/tasks.json \
+  --json /safe/path/family.ntbackup
+# record planDigest from the output
+noise-tasks migrate adopt apply --digest sha256:<planDigest> \
+  --offline --request-id adopt-2026-10-25 --json \
+  /safe/path/family.ntbackup
+```
+
+Apply builds a fresh current-schema `tasks.sqlite` from the verified bundle
+and embeds a permanent adoption receipt. The layout document is **never
+removed** — retired layouts are inert, and deleting or archiving them is the
+operator's decision. If a crash leaves `adoption-apply.json` behind, normal
+commands report `adoption recovery required` and rerunning the exact apply
+command resumes, cleans up, or replays; only the matching request id may
+advance the journal. Re-running the same request id returns the same
+receipt.
+
+After publication, verify with `list`, `show --json`, and one CAS mutation,
+then archive or delete the retired layout at your leisure.
+
 ## 2. Operational discipline after cutover
 
 ### `--file` is a fixture surface, never state
@@ -270,6 +320,9 @@ family sees the same workspaces.
 | `backup verify <bundle>` | Independently verify any backup bundle |
 | `migrate plan <bundle>` | Verify source/bundle equality and publish the derived plan |
 | `migrate apply --digest d --offline --request-id r <bundle>` | Apply or recover the one-way SQLite cutover |
+| `backup create --adopt <path> --output <bundle>` | Create the verified adoption bundle from one retired layout |
+| `migrate adopt plan --layout <path> <bundle>` | Verify layout/bundle equality and publish the adoption plan |
+| `migrate adopt apply --digest d --offline --request-id r <bundle>` | Adopt one retired layout into a fresh store |
 | `backup restore [--overwrite] --offline --request-id r <bundle>` | Restore atomically to SQLite with a permanent receipt |
 | `live feed [--since n]` | Replay the content-free change feed |
 | `claim -owner o -request-id r [-ttl s] <id>` | Acquire a fenced claim with §8.4 replay (default 900 s) |

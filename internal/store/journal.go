@@ -158,39 +158,45 @@ func validateJournal(obj map[string]any) (*MigrationJournal, error) {
 	return j, nil
 }
 
-// writeMigrationJournal atomically publishes the journal: a mode-0600
-// temporary in the store directory, file fsync, no-replace rename (a journal
-// mismatch is never overwritten), and directory fsync.
-func writeMigrationJournal(storeDir string, j *MigrationJournal) error {
+// writeJournalTo atomically publishes one §8.6/§8.6A recovery journal at
+// storeDir/name: a mode-0600 temporary with the given prefix in the store
+// directory, file fsync, no-replace rename (a journal mismatch is never
+// overwritten), and directory fsync.
+func writeJournalTo(storeDir, name, tmpPrefix string, j *MigrationJournal) error {
 	body, err := j.renderJournal()
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(storeDir, ".migration-apply-*")
+	tmp, err := os.CreateTemp(storeDir, tmpPrefix+"*")
 	if err != nil {
-		return fmt.Errorf("stage migration journal in %s: %w", storeDir, err)
+		return fmt.Errorf("stage recovery journal in %s: %w", storeDir, err)
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
-		return fmt.Errorf("chmod staged migration journal: %w", err)
+		return fmt.Errorf("chmod staged recovery journal: %w", err)
 	}
 	if _, err := tmp.Write(body); err != nil {
 		tmp.Close()
-		return fmt.Errorf("write staged migration journal: %w", err)
+		return fmt.Errorf("write staged recovery journal: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return fmt.Errorf("fsync staged migration journal: %w", err)
+		return fmt.Errorf("fsync staged recovery journal: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close staged migration journal: %w", err)
+		return fmt.Errorf("close staged recovery journal: %w", err)
 	}
-	if err := renameNoReplace(tmpPath, filepath.Join(storeDir, MigrationJournalFile)); err != nil {
-		return fmt.Errorf("publish migration journal: %w", err)
+	if err := renameNoReplace(tmpPath, filepath.Join(storeDir, name)); err != nil {
+		return fmt.Errorf("publish recovery journal: %w", err)
 	}
 	return fsyncDir(storeDir)
+}
+
+// writeMigrationJournal atomically publishes the §8.6 journal.
+func writeMigrationJournal(storeDir string, j *MigrationJournal) error {
+	return writeJournalTo(storeDir, MigrationJournalFile, ".migration-apply-", j)
 }
 
 // MigrationRecovery classifies the §2/§8.7 fencing state of one store

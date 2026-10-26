@@ -106,7 +106,7 @@ func Check(binary string) []error {
 	// the command.
 	for _, command := range commands {
 		if !probe.perCommandHelpWorks(command) {
-			fail("%s %s -help|--help: no form exited 0 with a usage line naming the command",
+			fail("%s %s help: one of -h, -help, --help did not exit 0 with a usage line on stdout",
 				probe.name, command)
 		}
 	}
@@ -202,22 +202,22 @@ func (p *pluginProbe) runFrom(dir string, args ...string) (stdout, stderr string
 	return "", "", -1, runErr
 }
 
-// perCommandHelpWorks reports whether at least one of the contracted
-// per-command help forms exits 0 with a usage line naming the command: a
-// line whose first word is "usage" (any case) and that contains the command
-// name. §5.3 requires one form and prefers both; the usage stream is the
-// plugin's choice (the Go flag package prints to stderr).
+// perCommandHelpWorks reports whether every contracted per-command help
+// form (-h, -help, --help) exits 0 with a usage line naming the command
+// on stdout and an empty stderr: a line whose first word is "usage" (any
+// case) and that contains the command name. §5.3 requires all three
+// forms; help output goes to stdout only.
 func (p *pluginProbe) perCommandHelpWorks(command string) bool {
-	for _, flag := range []string{"-help", "--help"} {
+	for _, flag := range []string{"-h", "-help", "--help"} {
 		stdout, stderr, code, err := p.run(command, flag)
 		if err != nil || code != 0 {
-			continue
+			return false
 		}
-		if hasUsageLineFor(stdout+stderr, command) {
-			return true
+		if stderr != "" || !hasUsageLineFor(stdout, command) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // hasUsageLineFor reports whether output carries a §5.3 usage line naming

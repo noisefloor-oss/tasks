@@ -153,11 +153,20 @@ func CreateLegacyBackup(outputPath, legacyPath, commonDir, ownerBoundary, create
 	if err != nil {
 		return nil, err
 	}
+	familyID := LegacyFamilyUUID(commonDir, ownerBoundary)
+	return buildLegacyKindBundle(outputPath, snap, familyID, ownerBoundary, createdBy, SourceKindLegacyJSON, LegacySourceSchema)
+}
+
+// buildLegacyKindBundle publishes one §8.5 bundle from an already validated
+// snapshot through the shared temporary exact-v3 compatibility payload. The
+// §8.6 legacy surface and the §8.6A adoption surface differ only in the
+// source kind and schema literals their manifest records; the import, proof,
+// and publication steps are one implementation.
+func buildLegacyKindBundle(outputPath string, snap *legacySnapshot, familyID, ownerBoundary, createdBy, sourceKind, sourceSchema string) (*Manifest, error) {
 	sourceComparison, sourceInv, err := legacyComparison(snap)
 	if err != nil {
 		return nil, err
 	}
-	familyID := LegacyFamilyUUID(commonDir, ownerBoundary)
 
 	payloadDir, err := os.MkdirTemp("", "noise-tasks-legacy-payload-*")
 	if err != nil {
@@ -202,19 +211,19 @@ func CreateLegacyBackup(outputPath, legacyPath, commonDir, ownerBoundary, create
 			return nil, err
 		}
 		// The proof: the imported payload must equal the exact logical
-		// legacy content on every shared class. No equality, no bundle.
+		// source content on every shared class. No equality, no bundle.
 		if comparison != sourceComparison {
-			return nil, legacyRefusalf("legacy import proof failed: source comparison digest %s, payload %s", sourceComparison, comparison)
+			return nil, legacyRefusalf("%s import proof failed: source comparison digest %s, payload %s", sourceKind, sourceComparison, comparison)
 		}
 		if *inv != *sourceInv {
-			return nil, legacyRefusalf("legacy import proof failed: source inventory %+v, payload %+v", *sourceInv, *inv)
+			return nil, legacyRefusalf("%s import proof failed: source inventory %+v, payload %+v", sourceKind, *sourceInv, *inv)
 		}
 		version, err := payload.userVersion()
 		if err != nil {
 			return nil, err
 		}
 		if version != orchestratorSchemaVersion {
-			return nil, fmt.Errorf("legacy payload schema %d, want %d", version, orchestratorSchemaVersion)
+			return nil, fmt.Errorf("%s payload schema %d, want %d", sourceKind, version, orchestratorSchemaVersion)
 		}
 		payloadDigest, err := hashFile(payloadPath)
 		if err != nil {
@@ -225,8 +234,8 @@ func CreateLegacyBackup(outputPath, legacyPath, commonDir, ownerBoundary, create
 			CreatedBy:               createdBy,
 			CreatedAt:               nowUTC(),
 			FamilyID:                familyID,
-			SourceKind:              SourceKindLegacyJSON,
-			SourceSchema:            LegacySourceSchema,
+			SourceKind:              sourceKind,
+			SourceSchema:            sourceSchema,
 			CurrentSchemaVersion:    orchestratorSchemaVersion,
 			Inventory:               *inv,
 			PayloadDigest:           payloadDigest,

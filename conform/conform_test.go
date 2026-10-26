@@ -32,7 +32,7 @@ case "${1:-}" in
 	;;
 alpha|beta)
 	case "${2:-}" in
-	-help|--help)
+	-h|-help|--help)
 		echo "Usage of $1:"
 		echo "  -json"
 		echo "    	machine-readable output"
@@ -44,7 +44,7 @@ alpha|beta)
 	;;
 version)
 	case "${2:-}" in
-	-help|--help)
+	-h|-help|--help)
 		echo "Usage of version:"
 		;;
 	*)
@@ -88,14 +88,14 @@ func TestPhantomListedCommandFails(t *testing.T) {
 		"  beta     do beta things\n  ghost    not dispatched\n")
 	binary := writeFixture(t, "noise-fake", fixture)
 	failures := Check(binary)
-	wantSubstrings(t, failures, []string{"noise-fake ghost -help|--help"})
+	wantSubstrings(t, failures, []string{"noise-fake ghost help: one of -h, -help, --help"})
 }
 
 func TestMissingVersionCommandFails(t *testing.T) {
 	fixture := replace(t, conformingFixture, "  version  print version\n", "")
 	fixture = replace(t, fixture, `version)
 	case "${2:-}" in
-	-help|--help)
+	-h|-help|--help)
 		echo "Usage of version:"
 		;;
 	*)
@@ -147,8 +147,8 @@ func TestPerCommandHelpWithoutUsageLineFails(t *testing.T) {
 	binary := writeFixture(t, "noise-fake", fixture)
 	failures := Check(binary)
 	wantSubstrings(t, failures, []string{
-		"noise-fake alpha -help|--help: no form exited 0 with a usage line naming the command",
-		"noise-fake beta -help|--help: no form exited 0 with a usage line naming the command",
+		"noise-fake alpha help: one of -h, -help, --help did not exit 0 with a usage line on stdout",
+		"noise-fake beta help: one of -h, -help, --help did not exit 0 with a usage line on stdout",
 	})
 }
 

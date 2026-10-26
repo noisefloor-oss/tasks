@@ -18,7 +18,18 @@ import (
 const taskColumns = `tag, id, title, description, details, status, priority, milestone,
 	dependencies, subtasks, extra, revision, updated_at,
 	claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
-	wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra, record_extra`
+	wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra, record_extra,
+	link_family, link_repository, link_issue`
+
+// taskColumnsPreLink is taskColumns against a released pre-v6 schema,
+// where the external-link columns do not exist yet (only the first
+// mutation's §8.2 upgrade adds them): they are synthesized as NULL so
+// read paths work without mutating the store.
+const taskColumnsPreLink = `tag, id, title, description, details, status, priority, milestone,
+	dependencies, subtasks, extra, revision, updated_at,
+	claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
+	wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra, record_extra,
+	NULL AS link_family, NULL AS link_repository, NULL AS link_issue`
 
 // taskColumnsV1 is taskColumns against a released v1 schema, where
 // tasks.record_extra does not exist yet (only the first mutation's §8.2
@@ -27,21 +38,26 @@ const taskColumns = `tag, id, title, description, details, status, priority, mil
 const taskColumnsV1 = `tag, id, title, description, details, status, priority, milestone,
 	dependencies, subtasks, extra, revision, updated_at,
 	claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
-	wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra, NULL AS record_extra`
+	wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra, NULL AS record_extra,
+	NULL AS link_family, NULL AS link_repository, NULL AS link_issue`
 
 // taskSelectColumns returns the task-row select list valid for this
-// database's schema. user_version is authoritative for the column's
-// presence: bootstrap and the v1→v2 upgrade stamp version 2 in the same
-// transaction that creates the column, so a pre-upgrade v1 store reads
-// record_extra as NULL instead of failing with "no such column" (SPEC
-// §8.7: earlier releases' databases stay readable, and reads never mutate).
+// database's schema. user_version is authoritative for the columns'
+// presence: bootstrap and each upgrade stamp the version in the same
+// transaction that creates the columns, so a pre-upgrade store reads
+// record_extra or the link columns as NULL instead of failing with
+// "no such column" (SPEC §8.7: earlier releases' databases stay
+// readable, and reads never mutate).
 func (t *tx) taskSelectColumns() (string, error) {
 	var version int
 	if err := t.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return "", fmt.Errorf("read user_version for task columns: %w", err)
 	}
-	if version >= recordExtraSchemaVersion {
+	if version >= externalLinkSchemaVersion {
 		return taskColumns, nil
+	}
+	if version >= recordExtraSchemaVersion {
+		return taskColumnsPreLink, nil
 	}
 	return taskColumnsV1, nil
 }
@@ -60,16 +76,26 @@ func scanTask(row rowScanner) (*Task, error) {
 	var depsRaw, subtasksRaw string
 	var claimOwner, claimAcquired, claimExpires, claimExtra sql.NullString
 	var claimToken, claimTTL sql.NullInt64
-	var wtPath, wtBoundary, wtBranch, wtCreated, wtExtra sql.NullString
 	var wtKeep sql.NullInt64
+	var wtPath, wtBoundary, wtBranch, wtCreated, wtExtra sql.NullString
+	var linkFamily, linkRepository sql.NullString
+	var linkIssue sql.NullInt64
 	err := row.Scan(&t.Tag, &t.ID, &t.Title, &t.Description, &t.Details, &t.Status,
 		&priority, &milestone, &depsRaw, &subtasksRaw, &extraRaw, &t.Revision, &updatedAt,
 		&claimOwner, &claimToken, &claimTTL, &claimAcquired, &claimExpires, &claimExtra,
-		&wtPath, &wtBoundary, &wtBranch, &wtCreated, &wtKeep, &wtExtra, &recordExtra)
+		&wtPath, &wtBoundary, &wtBranch, &wtCreated, &wtKeep, &wtExtra, &recordExtra,
+		&linkFamily, &linkRepository, &linkIssue)
 	if err != nil {
 		return nil, err
 	}
 	t.Priority, t.Milestone, t.UpdatedAt = priority.String, milestone.String, updatedAt.String
+	if linkFamily.Valid {
+		t.Link = &backlog.ExternalLink{
+			Family:     linkFamily.String,
+			Repository: linkRepository.String,
+			Issue:      linkIssue.Int64,
+		}
+	}
 	if err := json.Unmarshal([]byte(depsRaw), &t.Dependencies); err != nil {
 		return nil, fmt.Errorf("decode task %s dependencies: %w", t.ID, err)
 	}
@@ -176,6 +202,14 @@ func (t *Task) bindingArgs() (path, boundary, branch, created, extra sql.NullStr
 		nullString(t.Binding.CreatedAt), encodeExtra(t.Binding.Extra), keepVal
 }
 
+func (t *Task) linkArgs() (family, repository sql.NullString, issue sql.NullInt64) {
+	if t.Link == nil {
+		return
+	}
+	return nullString(t.Link.Family), nullString(t.Link.Repository),
+		sql.NullInt64{Int64: t.Link.Issue, Valid: true}
+}
+
 // writeTask updates every mutable column of one row. When casRevision >= 0
 // the update is conditional on the stored revision matching (SPEC §8.2 CAS).
 func (t *tx) writeTask(task *Task, casRevision int) (int64, error) {
@@ -193,10 +227,12 @@ func (t *tx) writeTaskConditional(task *Task, casRevision int, condition string,
 	}
 	claimOwner, claimAcquired, claimExpires, claimExtra, claimToken, claimTTL := task.claimArgs()
 	wtPath, wtBoundary, wtBranch, wtCreated, wtExtra, wtKeep := task.bindingArgs()
+	linkFamily, linkRepository, linkIssue := task.linkArgs()
 	query := `UPDATE tasks SET title=?, description=?, details=?, status=?, priority=?, milestone=?,
 		dependencies=?, subtasks=?, extra=?, record_extra=?, revision=?, updated_at=?,
 		claim_owner=?, claim_token=?, claim_ttl=?, claim_acquired_at=?, claim_expires_at=?, claim_extra=?,
-		wt_path=?, wt_boundary=?, wt_branch=?, wt_created_at=?, wt_keep=?, wt_extra=?
+		wt_path=?, wt_boundary=?, wt_branch=?, wt_created_at=?, wt_keep=?, wt_extra=?,
+		link_family=?, link_repository=?, link_issue=?
 		WHERE tag=? AND id=?`
 	args := []any{
 		task.Title, task.Description, task.Details, task.Status,
@@ -204,6 +240,7 @@ func (t *tx) writeTaskConditional(task *Task, casRevision int, condition string,
 		string(deps), string(subtasks), encodeExtra(task.Extra), encodeExtra(task.OuterExtra), task.Revision, task.UpdatedAt,
 		claimOwner, claimToken, claimTTL, claimAcquired, claimExpires, claimExtra,
 		wtPath, wtBoundary, wtBranch, wtCreated, wtKeep, wtExtra,
+		linkFamily, linkRepository, linkIssue,
 		task.Tag, task.ID,
 	}
 	if casRevision >= 0 {
@@ -601,16 +638,38 @@ func (t *tx) insertTask(task *Task) error {
 	}
 	claimOwner, claimAcquired, claimExpires, claimExtra, claimToken, claimTTL := task.claimArgs()
 	wtPath, wtBoundary, wtBranch, wtCreated, wtExtra, wtKeep := task.bindingArgs()
-	_, err = t.Exec(`INSERT INTO tasks(tag, id, title, description, details, status, priority, milestone,
-		dependencies, subtasks, extra, record_extra, revision, updated_at,
-		claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
-		wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		task.Tag, task.ID, task.Title, task.Description, task.Details, task.Status,
-		nullString(task.Priority), nullString(task.Milestone),
-		string(depsRaw), string(subtasks), extra, recordExtra, task.Revision, task.UpdatedAt,
-		claimOwner, claimToken, claimTTL, claimAcquired, claimExpires, claimExtra,
-		wtPath, wtBoundary, wtBranch, wtCreated, wtKeep, wtExtra)
+	// The link columns exist only from schema v6; the legacy v3 staging
+	// store (§8.5 bundle creation) inserts tasks into a pre-link catalog.
+	version := 0
+	if err := t.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read user_version for task insert: %w", err)
+	}
+	if version >= externalLinkSchemaVersion {
+		linkFamily, linkRepository, linkIssue := task.linkArgs()
+		_, err = t.Exec(`INSERT INTO tasks(tag, id, title, description, details, status, priority, milestone,
+			dependencies, subtasks, extra, record_extra, revision, updated_at,
+			claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
+			wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra,
+			link_family, link_repository, link_issue)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			task.Tag, task.ID, task.Title, task.Description, task.Details, task.Status,
+			nullString(task.Priority), nullString(task.Milestone),
+			string(depsRaw), string(subtasks), extra, recordExtra, task.Revision, task.UpdatedAt,
+			claimOwner, claimToken, claimTTL, claimAcquired, claimExpires, claimExtra,
+			wtPath, wtBoundary, wtBranch, wtCreated, wtKeep, wtExtra,
+			linkFamily, linkRepository, linkIssue)
+	} else {
+		_, err = t.Exec(`INSERT INTO tasks(tag, id, title, description, details, status, priority, milestone,
+			dependencies, subtasks, extra, record_extra, revision, updated_at,
+			claim_owner, claim_token, claim_ttl, claim_acquired_at, claim_expires_at, claim_extra,
+			wt_path, wt_boundary, wt_branch, wt_created_at, wt_keep, wt_extra)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			task.Tag, task.ID, task.Title, task.Description, task.Details, task.Status,
+			nullString(task.Priority), nullString(task.Milestone),
+			string(depsRaw), string(subtasks), extra, recordExtra, task.Revision, task.UpdatedAt,
+			claimOwner, claimToken, claimTTL, claimAcquired, claimExpires, claimExtra,
+			wtPath, wtBoundary, wtBranch, wtCreated, wtKeep, wtExtra)
+	}
 	if err != nil {
 		return fmt.Errorf("insert task %s: %w", task.ID, err)
 	}
@@ -620,10 +679,39 @@ func (t *tx) insertTask(task *Task) error {
 // AddTask creates one task, drawing the id from the tag row's next_id inside
 // the same immediate transaction (SPEC §8.2: collision-free across processes
 // and worktrees without any document-wide scan). A milestone assignment is
-// validated against the registry in the same transaction.
+// validated against the registry in the same transaction. An external link
+// already carried by a task of the same tag makes the add a §8.2 replay: the
+// existing task's id is returned and nothing is written; a holder in another
+// tag is a typed LinkExistsConflict — add's output is one id of this tag, so
+// replaying across tags must not be mistaken for it.
 func (d *DB) AddTask(tag string, task *Task) (string, error) {
+	id, _, err := d.EnsureTask(tag, task)
+	return id, err
+}
+
+// EnsureTask is AddTask with replay reporting: it returns the task's id
+// and whether this call created it. `ensure` uses the flag to report
+// create-versus-replay without a second read; every other semantic —
+// the same-tag replay that writes nothing, the cross-tag
+// LinkExistsConflict, the single immediate transaction — is AddTask's.
+func (d *DB) EnsureTask(tag string, task *Task) (string, bool, error) {
 	var id string
+	created := false
 	err := d.immediate(func(t *tx) error {
+		if task.Link != nil {
+			if err := backlog.ValidateExternalLink(task.Link); err != nil {
+				return err
+			}
+			if existing, err := t.findTaskByLink(*task.Link); err != nil {
+				return err
+			} else if existing != nil {
+				if existing.Tag != tag {
+					return &LinkExistsConflict{Link: *task.Link, ExistingTag: existing.Tag, ExistingID: existing.ID}
+				}
+				id = existing.ID
+				return nil
+			}
+		}
 		info, err := t.ensureTag(tag)
 		if err != nil {
 			return err
@@ -663,9 +751,10 @@ func (d *DB) AddTask(tag string, task *Task) (string, error) {
 		if err := t.recountTag(tag); err != nil {
 			return err
 		}
+		created = true
 		return t.appendEvent(Event{Task: id, Tag: tag, Kind: "add", Revision: 1, At: at})
 	})
-	return id, err
+	return id, created, err
 }
 
 // AddTasks appends a whole generated batch with contiguous ids and one
@@ -961,6 +1050,12 @@ func taskFromFields(tag string, fields []byte) (*Task, error) {
 	for _, k := range []string{"id", "title", "description", "details", "status", "priority", "milestone", "dependencies", "subtasks", "updatedAt"} {
 		delete(raw, k)
 	}
+	// A valid externalLink moves to the typed columns; a value that fails
+	// the §1 grammar (possible only through a doctored store) stays in Extra
+	// verbatim so the rewrite cannot silently drop it.
+	if parsed.Link != nil {
+		delete(raw, "externalLink")
+	}
 	task := &Task{
 		Tag:          tag,
 		ID:           parsed.ID,
@@ -970,6 +1065,7 @@ func taskFromFields(tag string, fields []byte) (*Task, error) {
 		Status:       parsed.Status,
 		Priority:     parsed.Priority,
 		Milestone:    parsed.Milestone,
+		Link:         parsed.Link,
 		Dependencies: parsed.Dependencies,
 		UpdatedAt:    parsed.UpdatedAt,
 		Extra:        raw,

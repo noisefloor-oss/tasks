@@ -15,16 +15,21 @@ import (
 // commands never accept --file and never consult a projection.
 func cmdMigrate(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: noise-tasks migrate <plan|apply> ...")
+		fmt.Fprintln(stderr, "usage: noise-tasks migrate <plan|apply|adopt> ...")
 		return 2
 	}
 	switch args[0] {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks migrate <plan|apply|adopt> ...")
+		return 0
 	case "plan":
 		return cmdMigratePlan(args[1:], stdout, stderr)
 	case "apply":
 		return cmdMigrateApply(args[1:], stdout, stderr)
+	case "adopt":
+		return cmdMigrateAdopt(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: noise-tasks migrate <plan|apply> ...")
+		fmt.Fprintln(stderr, "usage: noise-tasks migrate <plan|apply|adopt> ...")
 		return 2
 	}
 }
@@ -39,7 +44,7 @@ func cmdMigratePlan(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("migrate plan", stderr)
 	var jsonOut bool
 	fs.BoolVar(&jsonOut, "json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -66,8 +71,12 @@ func cmdMigratePlan(args []string, stdout, stderr io.Writer) int {
 	storeDir := filepath.Join(commonCanon, "noise-tasks")
 	// A recovery journal means apply has crossed its durable boundary. Per
 	// §2/§8.7 only the matching migrate apply may advance that state; plan
-	// must not replace the digest-bearing plan recovery depends on.
+	// must not replace the digest-bearing plan recovery depends on. An
+	// adoption recovery journal fences this surface the same way (§8.6A).
 	if err := migrationJournalGate(filepath.Join(storeDir, store.StoreFile)); err != nil {
+		return fail(stderr, err)
+	}
+	if err := adoptionJournalGate(filepath.Join(storeDir, store.StoreFile)); err != nil {
 		return fail(stderr, err)
 	}
 	legacyPath := filepath.Join(storeDir, store.LegacyFile)
@@ -106,7 +115,7 @@ func cmdMigrateApply(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&offline, "offline", false, "acknowledge that all pre-v2.5 writers are stopped")
 	fs.StringVar(&requestID, "request-id", "", "operator request id for replay-safe migration")
 	fs.BoolVar(&jsonOut, "json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	usage := func() int {
@@ -159,6 +168,9 @@ func cmdMigrateApply(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, fmt.Errorf("invalid migration recovery journal: %w", err))
 	}
 	if recovery != store.RecoveryRequired {
+		if err := adoptionJournalGate(filepath.Join(commonCanon, "noise-tasks", store.StoreFile)); err != nil {
+			return fail(stderr, err)
+		}
 		if err := outsideGitRehomingGate(boundary); err != nil {
 			return fail(stderr, err)
 		}

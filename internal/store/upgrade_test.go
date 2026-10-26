@@ -48,6 +48,10 @@ func rewindStoreToV3(t *testing.T, db *DB) {
 func rewindStoreToV4(t *testing.T, db *DB) {
 	t.Helper()
 	for _, q := range []string{
+		`DROP INDEX tasks_external_link`,
+		`ALTER TABLE tasks DROP COLUMN link_family`,
+		`ALTER TABLE tasks DROP COLUMN link_repository`,
+		`ALTER TABLE tasks DROP COLUMN link_issue`,
 		`DROP INDEX worktree_sagas_status`,
 		`DROP INDEX worktree_sagas_run_history`,
 		`DROP INDEX worktree_sagas_one_removed_source`,
@@ -56,6 +60,23 @@ func rewindStoreToV4(t *testing.T, db *DB) {
 		`DROP TABLE worktree_sagas`,
 		`DELETE FROM events WHERE kind='schema'`,
 		`PRAGMA user_version=4`,
+	} {
+		if _, err := db.db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+}
+
+// rewindStoreToV5 removes the complete additive v6 external-link delta from
+// a freshly created, empty test store, restoring the exact v5 catalog.
+func rewindStoreToV5(t *testing.T, db *DB) {
+	t.Helper()
+	for _, q := range []string{
+		`DROP INDEX tasks_external_link`,
+		`ALTER TABLE tasks DROP COLUMN link_family`,
+		`ALTER TABLE tasks DROP COLUMN link_repository`,
+		`ALTER TABLE tasks DROP COLUMN link_issue`,
+		`PRAGMA user_version=5`,
 	} {
 		if _, err := db.db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)

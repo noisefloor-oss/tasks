@@ -270,3 +270,61 @@ func TestListRunsFiltersAndOrdersWithoutSecrets(t *testing.T) {
 		t.Fatal("invalid run status filter succeeded")
 	}
 }
+
+// TestRunArgumentTaskHintScopesPerTag pins the §9.4 task-id-mistake lookup:
+// tags reuse bare ids, so the answer is one entry per tag carrying that id,
+// in ascending tag order, each with that task's current live run id or zero.
+func TestRunArgumentTaskHintScopesPerTag(t *testing.T) {
+	db, _ := newDB(t)
+	start := func(tag, id, request string) int64 {
+		claim, _, _, err := db.AcquireClaim(tag, id, "agent-a", 3600, "claim."+request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, _, err := db.StartRun(tag, id, "agent-a", claim.Token, "run."+request, 300)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run.RunID
+	}
+	// Tag main: tasks 1–4; tag aux reuses ids 1–2. Run 1 is main task 3's,
+	// run 2 is aux task 1's; every other task has no run.
+	addTask(t, db, "main", "one")
+	addTask(t, db, "main", "two")
+	third := addTask(t, db, "main", "three")
+	addTask(t, db, "main", "four")
+	auxOne := addTask(t, db, "aux", "auxone")
+	addTask(t, db, "aux", "auxtwo")
+	first := start("main", third, "runmain")
+	second := start("aux", auxOne, "runaux")
+	if first != 1 || second != 2 {
+		t.Fatalf("fixture run ids = %d, %d; want 1, 2", first, second)
+	}
+	cases := []struct {
+		argument int64
+		want     []RunArgumentTask
+	}{
+		// Id 1 is reused: main's task 1 has no run, aux's task 1 runs as 2.
+		{1, []RunArgumentTask{{Tag: "aux", LiveRunID: 2}, {Tag: "main"}}},
+		// Id 2 is reused too: neither tag's task 2 has a run.
+		{2, []RunArgumentTask{{Tag: "aux"}, {Tag: "main"}}},
+		// Id 3 is main-only and live as run 1.
+		{3, []RunArgumentTask{{Tag: "main", LiveRunID: 1}}},
+		// Id 4 is main-only with no run.
+		{4, []RunArgumentTask{{Tag: "main"}}},
+		// Id 5 names no task in any tag.
+		{5, nil},
+	}
+	for _, tc := range cases {
+		got, err := db.RunArgumentTaskHint(tc.argument)
+		if err != nil {
+			t.Fatalf("RunArgumentTaskHint(%d): %v", tc.argument, err)
+		}
+		if len(got) == 0 && len(tc.want) == 0 {
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("RunArgumentTaskHint(%d) = %+v; want %+v", tc.argument, got, tc.want)
+		}
+	}
+}

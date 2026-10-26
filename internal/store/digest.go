@@ -676,6 +676,13 @@ func taskRecords(task *Task, class string) ([][]byte, error) {
 		if task.Milestone != "" {
 			taskObj["milestone"] = task.Milestone
 		}
+		if task.Link != nil {
+			taskObj["externalLink"] = map[string]any{
+				"family":     task.Link.Family,
+				"repository": task.Link.Repository,
+				"issue":      fmt.Sprintf("%d", task.Link.Issue),
+			}
+		}
 		if err := mergeExtraRaw(taskObj, task.Extra); err != nil {
 			return nil, fmt.Errorf("task %s: %w", task.ID, err)
 		}

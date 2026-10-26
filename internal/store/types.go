@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/noisefloor-oss/tasks/internal/backlog"
 )
 
 // Claim records a task's claim state (SPEC §8.3). Token is the fencing
@@ -48,14 +50,17 @@ type WorktreeBinding struct {
 // unknown §1 fields preserved verbatim and re-emitted on export; Subtasks is
 // the byte-faithful §1 array value.
 type Task struct {
-	Tag          string
-	ID           string
-	Title        string
-	Description  string
-	Details      string
-	Status       string
-	Priority     string // empty = absent (medium everywhere, §1)
-	Milestone    string
+	Tag         string
+	ID          string
+	Title       string
+	Description string
+	Details     string
+	Status      string
+	Priority    string // empty = absent (medium everywhere, §1)
+	Milestone   string
+	// Link is the task's set-once external link (§1); nil is unset. Only
+	// add --link and set-link assign it; every other write preserves it.
+	Link         *backlog.ExternalLink
 	Dependencies []string
 	Subtasks     json.RawMessage
 	Extra        map[string]json.RawMessage
@@ -93,6 +98,10 @@ func (t *Task) Fields() ([]byte, error) {
 	if t.Milestone != "" {
 		buf.WriteString(`,"milestone":`)
 		writeJSONString(&buf, t.Milestone)
+	}
+	if t.Link != nil {
+		buf.WriteString(`,"externalLink":`)
+		buf.Write(backlog.MarshalExternalLink(*t.Link))
 	}
 	buf.WriteString(`,"dependencies":`)
 	deps := t.Dependencies

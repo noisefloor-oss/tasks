@@ -31,7 +31,7 @@ type contextResult struct {
 func cmdContext(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("context", stderr)
 	jsonOutput := fs.Bool("json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 || !*jsonOutput {
@@ -131,12 +131,13 @@ func contextInitialized(storePath string) bool {
 	return lstat.Mode().IsRegular()
 }
 
-// contextBlocked applies the §2.2 blocked rule to the §8.6 apply
-// journal: a strict-valid journal with no published database proves cutover
-// began but SQLite publication did not complete, which is exactly
-// `migration-recovery-required`. A journal beside a published database has
-// completed publication and is not blocked. A malformed journal is an
-// operational failure returned as an error.
+// contextBlocked applies the §2.2 blocked rule to the §8.6 apply journal
+// (`migration-recovery-required`) and the §8.6A adoption journal
+// (`adoption-recovery-required`): a strict-valid journal with no published
+// database proves cutover began but SQLite publication did not complete. A
+// journal beside a published database has completed publication and is not
+// blocked. A malformed journal is an operational failure returned as an
+// error.
 func contextBlocked(storePath string) (blocked bool, reason string, err error) {
 	recovery, err := store.ReadMigrationRecovery(filepath.Dir(storePath))
 	if err != nil {
@@ -144,6 +145,13 @@ func contextBlocked(storePath string) (blocked bool, reason string, err error) {
 	}
 	if recovery == store.RecoveryRequired {
 		return true, "migration-recovery-required", nil
+	}
+	adoption, err := store.ReadAdoptionRecovery(filepath.Dir(storePath))
+	if err != nil {
+		return false, "", fmt.Errorf("invalid adoption recovery journal: %w", err)
+	}
+	if adoption == store.RecoveryRequired {
+		return true, "adoption-recovery-required", nil
 	}
 	return false, "", nil
 }

@@ -38,7 +38,7 @@ func TestBackupCreateVerifyRestoreCLI(t *testing.T) {
 			t.Fatalf("manifest missing %q: %v", key, manifest)
 		}
 	}
-	if manifest["sourceKind"] != "sqlite" || manifest["sourceSchema"] != "sqlite:5" {
+	if manifest["sourceKind"] != "sqlite" || manifest["sourceSchema"] != "sqlite:6" {
 		t.Fatalf("unexpected source fields: %v", manifest)
 	}
 

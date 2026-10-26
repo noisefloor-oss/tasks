@@ -18,6 +18,9 @@ func cmdPlan(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprintln(stdout, "usage: noise-tasks plan <validate|apply> ...")
+		return 0
 	case "validate":
 		return cmdPlanValidate(args[1:], stdout, stderr)
 	case "apply":
@@ -32,7 +35,7 @@ func cmdPlanValidate(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("plan validate", stderr)
 	offline := fs.Bool("offline", false, "validate shape and local graph without opening a store")
 	jsonOut := fs.Bool("json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, planPathFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, planPathFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -79,7 +82,7 @@ func cmdPlanApply(args []string, stdout, stderr io.Writer) int {
 	digest := fs.String("digest", "", "accepted plan digest")
 	requestID := fs.String("request-id", "", "operator request id for replay-safe apply")
 	jsonOut := fs.Bool("json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, planPathFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, planPathFirstArgs(args)); !ok {
 		return code
 	}
 	usage := func() int {

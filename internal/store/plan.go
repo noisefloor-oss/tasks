@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,41 @@ const (
 	PlanSchemaVersion = 1
 	// planDigestDomain prefixes the canonical plan digest input.
 	planDigestDomain = "noise-tasks-migration-plan-v1\x00"
+)
+
+// planCodec names one strict plan surface. The §8.6 migration plan and the
+// §8.6A adoption plan share shape, encoding, and size bounds; they differ in
+// digest domain, source-kind literals, and the source-path rule.
+type planCodec struct {
+	what         string // human name in diagnostics
+	sourceKind   string
+	sourceSchema string
+	domain       string // canonical digest domain
+	adoption     bool
+}
+
+// file names the codec's published plan inside the store directory.
+func (c planCodec) file() string {
+	if c.adoption {
+		return AdoptionPlanFile
+	}
+	return PlanFile
+}
+
+var (
+	migrationPlanCodec = planCodec{
+		what:         "migration plan",
+		sourceKind:   SourceKindLegacyJSON,
+		sourceSchema: LegacySourceSchema,
+		domain:       planDigestDomain,
+	}
+	adoptionPlanCodec = planCodec{
+		what:         "adoption plan",
+		sourceKind:   SourceKindAdoptedJSON,
+		sourceSchema: AdoptionSourceSchema,
+		domain:       adoptionPlanDigestDomain,
+		adoption:     true,
+	}
 )
 
 // PlanError reports a fail-closed migration plan refusal (exit 1).
@@ -162,23 +198,29 @@ func (p *MigrationPlan) planValue() map[string]any {
 	}
 }
 
-// PlanDigest computes the canonical §8.6 plan digest: SHA-256 over the
-// domain string and the canonical JSON of the plan excluding planDigest.
-func (p *MigrationPlan) computePlanDigest() (string, error) {
+// computePlanDigestWith computes the canonical plan digest of one codec's
+// surface: SHA-256 over the codec's domain string and the canonical JSON of
+// the plan excluding planDigest.
+func (p *MigrationPlan) computePlanDigestWith(c planCodec) (string, error) {
 	body, err := canonicalJSON(p.planValue())
 	if err != nil {
 		return "", fmt.Errorf("render plan canonically: %w", err)
 	}
 	h := sha256.New()
-	h.Write([]byte(planDigestDomain))
+	h.Write([]byte(c.domain))
 	h.Write(body)
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// renderPlan produces the exact published bytes — the canonical digest-covered
-// content plus the planDigest member — and records that digest on the plan.
-func (p *MigrationPlan) renderPlan() ([]byte, error) {
-	digest, err := p.computePlanDigest()
+func (p *MigrationPlan) computePlanDigest() (string, error) {
+	return p.computePlanDigestWith(migrationPlanCodec)
+}
+
+// renderPlanWith produces one codec's exact published bytes — the canonical
+// digest-covered content plus the planDigest member — and records that digest
+// on the plan.
+func (p *MigrationPlan) renderPlanWith(c planCodec) ([]byte, error) {
+	digest, err := p.computePlanDigestWith(c)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +236,8 @@ func (p *MigrationPlan) renderPlan() ([]byte, error) {
 	p.PlanDigest = digest
 	return body, nil
 }
+
+func (p *MigrationPlan) renderPlan() ([]byte, error) { return p.renderPlanWith(migrationPlanCodec) }
 
 // CreateMigrationPlan verifies a §8.5 legacy bundle against the exact derived
 // legacy live.json and atomically publishes the strict §8.6 plan at
@@ -223,6 +267,13 @@ func CreateMigrationPlan(bundlePath, legacyPath, commonDir, ownerBoundary, store
 	}
 	if recovery != RecoveryNone {
 		return nil, planErrorf("migration recovery is already in progress; only the matching migrate apply may advance it")
+	}
+	// §8.6 and §8.6A never advance each other's state (§8.7): an adoption
+	// recovery journal fences the §8.6 plan too.
+	if _, err := ReadMigrationJournal(filepath.Join(storeDir, AdoptionJournalFile)); err == nil {
+		return nil, planErrorf("an adoption recovery journal exists in %s; complete it with migrate adopt apply first", storeDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 
 	manifest, err := VerifyBundle(bundlePath)
@@ -296,47 +347,54 @@ func CreateMigrationPlan(bundlePath, legacyPath, commonDir, ownerBoundary, store
 	return plan, nil
 }
 
-// publishPlan atomically writes the plan: a mode-0600 temporary in the same
-// store directory, fsync of the file, atomic rename over any prior plan, and
-// fsync of the directory. A repeat with the same semantic inputs replaces the
-// prior plan atomically; no partial JSON is ever visible at the plan path.
-func publishPlan(storeDir string, plan *MigrationPlan) error {
-	body, err := plan.renderPlan()
+// publishPlanCodec atomically writes one codec's plan: a mode-0600 temporary
+// in the same store directory, fsync of the file, atomic rename over any
+// prior plan, and fsync of the directory. A repeat with the same semantic
+// inputs replaces the prior plan atomically; no partial JSON is ever visible
+// at the plan path.
+func publishPlanCodec(storeDir string, plan *MigrationPlan, c planCodec) error {
+	body, err := plan.renderPlanWith(c)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(storeDir, ".migration-plan-*")
+	name := c.file()
+	tmp, err := os.CreateTemp(storeDir, "."+name+"-*")
 	if err != nil {
-		return fmt.Errorf("stage migration plan in %s: %w", storeDir, err)
+		return fmt.Errorf("stage %s in %s: %w", c.what, storeDir, err)
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
-		return fmt.Errorf("chmod staged migration plan: %w", err)
+		return fmt.Errorf("chmod staged %s: %w", c.what, err)
 	}
 	if _, err := tmp.Write(body); err != nil {
 		tmp.Close()
-		return fmt.Errorf("write staged migration plan: %w", err)
+		return fmt.Errorf("write staged %s: %w", c.what, err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return fmt.Errorf("fsync staged migration plan: %w", err)
+		return fmt.Errorf("fsync staged %s: %w", c.what, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close staged migration plan: %w", err)
+		return fmt.Errorf("close staged %s: %w", c.what, err)
 	}
-	if err := os.Rename(tmpPath, filepath.Join(storeDir, PlanFile)); err != nil {
-		return fmt.Errorf("publish migration plan: %w", err)
+	if err := os.Rename(tmpPath, filepath.Join(storeDir, name)); err != nil {
+		return fmt.Errorf("publish %s: %w", c.what, err)
 	}
 	return fsyncDir(storeDir)
 }
 
-// ReadMigrationPlan loads and strictly validates the plan at path: bounded
-// size, regular non-symlink mode-0600 file, strict JSON with no duplicate or
-// unknown keys, canonical encoding, exact field set and forms, derived
-// source/target identity agreement, and a matching recomputed plan digest.
-func ReadMigrationPlan(path string) (*MigrationPlan, error) {
+func publishPlan(storeDir string, plan *MigrationPlan) error {
+	return publishPlanCodec(storeDir, plan, migrationPlanCodec)
+}
+
+// ReadPlanFile loads and strictly validates one codec's plan at path:
+// bounded size, regular non-symlink mode-0600 file, strict JSON with no
+// duplicate or unknown keys, canonical encoding, exact field set and forms,
+// derived source/target identity agreement, and a matching recomputed plan
+// digest over the codec's domain.
+func ReadPlanFile(path string, c planCodec) (*MigrationPlan, error) {
 	f, info, err := openRegularNoFollow(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -356,7 +414,7 @@ func ReadMigrationPlan(path string) (*MigrationPlan, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(f, PlanMaxBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read migration plan %s: %w", path, err)
+		return nil, fmt.Errorf("read %s %s: %w", c.what, path, err)
 	}
 	if len(data) > PlanMaxBytes {
 		return nil, planErrorf("%s exceeds %d bytes", path, PlanMaxBytes)
@@ -365,13 +423,13 @@ func ReadMigrationPlan(path string) (*MigrationPlan, error) {
 	if err != nil {
 		return nil, planErrorf("%s is not strict JSON: %v", path, err)
 	}
-	plan, err := validatePlan(obj)
+	plan, err := validatePlanCodec(obj, c)
 	if err != nil {
 		return nil, err
 	}
 	// The published bytes must be the canonical rendering: any other valid
 	// encoding of the same plan is noncanonical and refused.
-	canon, err := plan.renderPlan()
+	canon, err := plan.renderPlanWith(c)
 	if err != nil {
 		return nil, err
 	}
@@ -381,9 +439,15 @@ func ReadMigrationPlan(path string) (*MigrationPlan, error) {
 	return plan, nil
 }
 
-// validatePlan enforces the exact §8.6 plan field set, forms, and derived
-// identity agreement.
-func validatePlan(obj map[string]any) (*MigrationPlan, error) {
+// ReadMigrationPlan loads and strictly validates the §8.6 migration plan at
+// path.
+func ReadMigrationPlan(path string) (*MigrationPlan, error) {
+	return ReadPlanFile(path, migrationPlanCodec)
+}
+
+// validatePlanCodec enforces the exact §8.6/§8.6A plan field set, forms, and
+// derived identity agreement for one codec's surface.
+func validatePlanCodec(obj map[string]any, c planCodec) (*MigrationPlan, error) {
 	required := []string{
 		"schemaVersion", "createdBy", "createdAt", "familyId", "source",
 		"backup", "inventory", "target", "planDigest",
@@ -475,14 +539,14 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 	if p.Source.Kind, err = strField(srcObj, "plan source", "kind"); err != nil {
 		return nil, err
 	}
-	if p.Source.Kind != SourceKindLegacyJSON {
-		return nil, planErrorf("plan source kind %q is not %q", p.Source.Kind, SourceKindLegacyJSON)
+	if p.Source.Kind != c.sourceKind {
+		return nil, planErrorf("plan source kind %q is not %q", p.Source.Kind, c.sourceKind)
 	}
 	if p.Source.Schema, err = strField(srcObj, "plan source", "schema"); err != nil {
 		return nil, err
 	}
-	if p.Source.Schema != LegacySourceSchema {
-		return nil, planErrorf("plan source schema %q is not %s", p.Source.Schema, LegacySourceSchema)
+	if p.Source.Schema != c.sourceSchema {
+		return nil, planErrorf("plan source schema %q is not %s", p.Source.Schema, c.sourceSchema)
 	}
 	if p.Source.ComparisonDigest, err = digestField(srcObj, "plan source", "comparisonDigest"); err != nil {
 		return nil, err
@@ -490,8 +554,15 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 	if p.Source.Path, err = strField(srcObj, "plan source", "path"); err != nil {
 		return nil, err
 	}
-	if !filepath.IsAbs(p.Source.Path) || filepath.Base(p.Source.Path) != LegacyFile {
-		return nil, planErrorf("plan source path %q is not the derived canonical live.json path", p.Source.Path)
+	if !c.adoption {
+		// §8.6: the source is the exact derived live.json of the store
+		// directory.
+		if !filepath.IsAbs(p.Source.Path) || filepath.Base(p.Source.Path) != LegacyFile {
+			return nil, planErrorf("plan source path %q is not the derived canonical live.json path", p.Source.Path)
+		}
+	}
+	if !filepath.IsAbs(p.Source.Path) {
+		return nil, planErrorf("plan source path %q is not an absolute canonical path", p.Source.Path)
 	}
 	if filepath.Clean(p.Source.Path) != p.Source.Path {
 		return nil, planErrorf("plan source path %q is not filepath.Clean-canonical", p.Source.Path)
@@ -514,8 +585,8 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 	if p.Backup.SourceSchema, err = strField(backupObj, "plan backup", "sourceSchema"); err != nil {
 		return nil, err
 	}
-	if p.Backup.SourceSchema != LegacySourceSchema {
-		return nil, planErrorf("plan backup sourceSchema %q is not %s", p.Backup.SourceSchema, LegacySourceSchema)
+	if p.Backup.SourceSchema != c.sourceSchema {
+		return nil, planErrorf("plan backup sourceSchema %q is not %s", p.Backup.SourceSchema, c.sourceSchema)
 	}
 	currentSchema, err := intField(backupObj, "plan backup", "currentSchema")
 	if err != nil {
@@ -548,8 +619,9 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 		return nil, planErrorf("plan inventory: %v", err)
 	}
 	p.Inventory = *inv
-	// A legacy plan is content-neutral on the SQLite-only classes: any
-	// nonzero count there contradicts the legacy source the plan proves.
+	// A legacy or adoption plan is content-neutral on the SQLite-only
+	// classes: any nonzero count there contradicts the source the plan
+	// proves.
 	for class, count := range map[string]int{
 		"assignments":   inv.Assignments,
 		"receipts":      inv.Receipts,
@@ -560,7 +632,7 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 		"worktreeSagas": inv.WorktreeSagas,
 	} {
 		if count != 0 {
-			return nil, planErrorf("plan inventory class %s is %d; a legacy plan requires 0", class, count)
+			return nil, planErrorf("plan inventory class %s is %d; a %s requires 0", class, count, c.what)
 		}
 	}
 	// Cross-field proof: the source the plan verified and the bundle it was
@@ -602,12 +674,24 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 	if filepath.Clean(p.Target.OwnerBoundary) != p.Target.OwnerBoundary {
 		return nil, planErrorf("plan target ownerBoundary %q is not filepath.Clean-canonical", p.Target.OwnerBoundary)
 	}
-	// Derived identity agreement: the source and target are the exact legacy
-	// and SQLite authorities of one canonical <common-dir>/noise-tasks store
-	// directory, and the family is its deterministic §8.5 derivation.
-	storeDir := filepath.Dir(p.Source.Path)
-	if filepath.Dir(p.Target.Path) != storeDir {
+	// Derived identity agreement: the target is the exact SQLite authority of
+	// one canonical <git-common-dir>/noise-tasks store directory, and the
+	// family is its deterministic §8.5 derivation. A §8.6 plan additionally
+	// proves its source is that directory's derived live.json; an §8.6A plan
+	// proves its adopted source lives outside the store directory.
+	storeDir := filepath.Dir(p.Target.Path)
+	if !c.adoption && filepath.Dir(p.Source.Path) != storeDir {
 		return nil, planErrorf("plan source and target paths are not derived from one store directory")
+	}
+	if c.adoption && (strings.HasPrefix(p.Source.Path, storeDir+string(filepath.Separator)) || p.Source.Path == storeDir) {
+		return nil, planErrorf("plan source path %q is inside the store directory %s", p.Source.Path, storeDir)
+	}
+	// An adoption plan's source is operator-named, and the plan digest is
+	// not authenticated content: containment inside the plan's own owner
+	// boundary is proven here, not trusted from planning time.
+	if c.adoption && p.Source.Path != p.Target.OwnerBoundary &&
+		!strings.HasPrefix(p.Source.Path, p.Target.OwnerBoundary+string(filepath.Separator)) {
+		return nil, planErrorf("plan source path %q is not inside the owner boundary %s", p.Source.Path, p.Target.OwnerBoundary)
 	}
 	if filepath.Base(storeDir) != "noise-tasks" || filepath.Clean(storeDir) != storeDir {
 		return nil, planErrorf("plan store directory %q is not the canonical <git-common-dir>/noise-tasks directory", storeDir)
@@ -619,7 +703,7 @@ func validatePlan(obj map[string]any) (*MigrationPlan, error) {
 	if p.PlanDigest, err = digestField(obj, "plan", "planDigest"); err != nil {
 		return nil, err
 	}
-	digest, err := p.computePlanDigest()
+	digest, err := p.computePlanDigestWith(c)
 	if err != nil {
 		return nil, err
 	}

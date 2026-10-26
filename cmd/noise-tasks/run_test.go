@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -250,7 +251,7 @@ func TestRunCLIHelpAndStrictDecimalGrammar(t *testing.T) {
 		{"cancel", false}, {"show", false}, {"list", false},
 	} {
 		code, stdout, stderr := runCmd(cmdRun, tt.verb, "-help")
-		if code != 0 || stdout != "" || strings.Contains(stderr, "\n  -file ") || strings.Contains(stderr, "-tag") != tt.wantTag {
+		if code != 0 || stderr != "" || !strings.Contains(stdout, "usage: noise-tasks run "+tt.verb) || strings.Contains(stdout, "\n  -file ") || strings.Contains(stdout, "-tag") != tt.wantTag {
 			t.Errorf("%s help exit %d stdout=%q stderr=%q", tt.verb, code, stdout, stderr)
 		}
 	}
@@ -278,7 +279,7 @@ func TestRunCLIHelpAndStrictDecimalGrammar(t *testing.T) {
 	var parseErr strings.Builder
 	fs := newCommandFlagSet("decimal", &parseErr)
 	decimalIntVar(fs, &ttl, "ttl", "")
-	if code, ok := parseFlags(fs, []string{"--ttl", "077"}); !ok || code != 0 || ttl != 77 {
+	if code, ok := parseFlags(fs, io.Discard, []string{"--ttl", "077"}); !ok || code != 0 || ttl != 77 {
 		t.Fatalf("base-10 leading-zero TTL parsed as %d, exit %d, stderr=%q", ttl, code, parseErr.String())
 	}
 }

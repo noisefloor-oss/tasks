@@ -54,7 +54,7 @@ func setupMain(args []string, stdin io.Reader, stdout, stderr io.Writer, termina
 	modelFlag := fs.String("model", "", "generation model id")
 	yesFlag := fs.Bool("yes", false, "confirm creating or replacing preferences")
 	jsonFlag := fs.Bool("json", false, "machine-readable JSON on stdout")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -247,6 +247,16 @@ func observeSetupState() (setupState, error) {
 // checks are bounded stat-only existence checks on fixed paths; they select
 // nothing and never parse (§2).
 func setupRefusals(boundary, storePath string) error {
+	// §2/§8.7 fencing first: a valid recovery journal with no database
+	// never gets a new store suggested over it, and a malformed journal
+	// fails closed. This precedes the retired-layout checks because a
+	// layout is still on disk in every §8.6A recovery state — the operator
+	// must see the real remedy, not pre-cutover guidance. The historic
+	// sqlite-migration.json receipts are inert (§8.7): they are never read
+	// as authority here.
+	if err := migrationProjectGate(boundary, storePath); err != nil {
+		return err
+	}
 	for _, layout := range []struct{ rel, msg string }{
 		{filepath.Join(".tasks", "tasks", "tasks.json"),
 			"retired .tasks/tasks/tasks.json layout found; complete the retired-layout migration with the final pre-cutover release before running setup"},
@@ -262,13 +272,6 @@ func setupRefusals(boundary, storePath string) error {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-	}
-	// §2/§8.7 fencing: a valid recovery journal with no database never gets
-	// a new store suggested over it, and a malformed journal fails closed.
-	// The historic sqlite-migration.json receipts are inert (§8.7): they
-	// are never read as authority here.
-	if err := migrationProjectGate(boundary, storePath); err != nil {
-		return err
 	}
 	if err := outsideGitRehomingGate(boundary); err != nil {
 		return err

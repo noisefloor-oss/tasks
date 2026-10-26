@@ -32,6 +32,10 @@ type Task struct {
 	// Milestone names an entry of the tag's §12 registry; empty is
 	// unassigned.
 	Milestone string
+	// Link is the task's set-once external link (§1); nil is unset. A
+	// present-but-malformed `externalLink` member decodes to nil here and
+	// round-trips through the raw task object; verify reports it.
+	Link      *ExternalLink
 	Subtasks  []json.RawMessage
 	UpdatedAt string
 }

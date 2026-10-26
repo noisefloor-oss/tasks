@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/noisefloor-oss/tasks/internal/backlog"
@@ -368,6 +369,53 @@ func (d *DB) GetRun(runID int64) (*RunRecord, error) {
 		var err error
 		result, err = readRun(t, runID)
 		return err
+	})
+	return result, err
+}
+
+// RunArgumentTask names one tag whose tasks table carries the bare id, with
+// that task's current live (running or retryable) run id, zero when none.
+type RunArgumentTask struct {
+	Tag       string
+	LiveRunID int64
+}
+
+// RunArgumentTaskHint resolves the §9.4 task-id-mistake diagnostic for a run
+// positional argument that names no run: every tag whose tasks table carries
+// that bare id, each with that task's current live run id, if any. Tags are
+// returned in ascending name order; several tags reuse one id.
+func (d *DB) RunArgumentTaskHint(candidate int64) ([]RunArgumentTask, error) {
+	taskID := strconv.FormatInt(candidate, 10)
+	var result []RunArgumentTask
+	err := d.deferred(func(t *tx) error {
+		rows, err := t.Query(`SELECT tag FROM tasks WHERE id=? ORDER BY tag`, taskID)
+		if err != nil {
+			return fmt.Errorf("run argument hint: %w", err)
+		}
+		var tags []string
+		for rows.Next() {
+			var tag string
+			if err := rows.Scan(&tag); err != nil {
+				rows.Close()
+				return fmt.Errorf("run argument hint: %w", err)
+			}
+			tags = append(tags, tag)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return fmt.Errorf("run argument hint: %w", err)
+		}
+		rows.Close()
+		for _, tag := range tags {
+			var liveRunID int64
+			err := t.QueryRow(`SELECT run_id FROM runs WHERE tag=? AND task_id=? AND status IN ('running','retryable')
+				ORDER BY run_id DESC LIMIT 1`, tag, taskID).Scan(&liveRunID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("run argument hint: %w", err)
+			}
+			result = append(result, RunArgumentTask{Tag: tag, LiveRunID: liveRunID})
+		}
+		return nil
 	})
 	return result, err
 }

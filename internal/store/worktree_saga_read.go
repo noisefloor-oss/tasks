@@ -74,6 +74,31 @@ func (d *DB) ListWorktreeSagas(ownerBoundary string) (*WorktreeSagaList, error) 
 	return report, nil
 }
 
+// WorktreeSagaPaths reads just every saga row's target path, ordered by
+// saga id, in one closed read transaction: the ownership evidence the
+// §8.9 unowned-worktree report and the §2.4 doctor finding judge
+// registered worktrees against, without the §9.4 unknown-entry
+// filesystem scan the full list surface performs. It never mutates
+// anything.
+func (d *DB) WorktreeSagaPaths() ([]string, error) {
+	paths := []string{}
+	err := d.deferred(func(t *tx) error {
+		sagas, err := readWorktreeSagas(t, `SELECT `+worktreeSagaColumns+`
+			FROM worktree_sagas ORDER BY saga_id`)
+		if err != nil {
+			return err
+		}
+		for _, s := range sagas {
+			paths = append(paths, s.path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
 // sagaListEntry projects one saga row into the exact §9.4 list entry.
 func sagaListEntry(s *worktreeSagaState) WorktreeSagaListEntry {
 	e := WorktreeSagaListEntry{

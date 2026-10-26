@@ -15,7 +15,7 @@ func main() {
 	}
 
 	cmd := os.Args[1]
-	if cmd == "--help" || cmd == "-h" {
+	if cmd == "--help" || cmd == "-help" || cmd == "-h" {
 		if len(os.Args) != 2 {
 			printUsage(os.Stderr)
 			os.Exit(2)
@@ -36,6 +36,8 @@ func main() {
 		os.Exit(cmdShow(os.Args[2:], os.Stdout, os.Stderr))
 	case "add":
 		os.Exit(cmdAdd(os.Args[2:], os.Stdout, os.Stderr))
+	case "ensure":
+		os.Exit(cmdEnsure(os.Args[2:], os.Stdout, os.Stderr))
 	case "set-status":
 		os.Exit(cmdSetStatus(os.Args[2:], os.Stdout, os.Stderr))
 	case "append":
@@ -76,6 +78,8 @@ func main() {
 		os.Exit(cmdDispatch(os.Args[2:], os.Stdout, os.Stderr))
 	case "set-milestone":
 		os.Exit(cmdSetMilestone(os.Args[2:], os.Stdout, os.Stderr))
+	case "set-link":
+		os.Exit(cmdSetLink(os.Args[2:], os.Stdout, os.Stderr))
 	case "version":
 		os.Exit(cmdVersion(os.Args[2:], os.Stdout, os.Stderr))
 	default:
@@ -86,7 +90,7 @@ func main() {
 
 func cmdVersion(args []string, stdout, stderr io.Writer) int {
 	fs := newCommandFlagSet("version", stderr)
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -107,14 +111,16 @@ commands:
   next        show the next actionable task
   show        show a single task by id
   add         create a new task
+  ensure      create-or-return the task tracking a repository issue
   set-status  set a task's status
   set-milestone  assign or clear a task's milestone
+  set-link    assign a task's set-once external link
   append      append text to a task's details
   remove      remove a task
   milestone   milestone registry commands
-  hygiene   lifecycle residue report (stale runs, expired claims)
+  hygiene   residue report (stale runs, expired claims) plus unowned worktrees
   backup      backup bundle create, verify, and restore
-  migrate     plan and apply the one-way live.json migration
+  migrate     plan and apply the one-way live.json migration; adopt imports a retired layout
   plan        validate and atomically apply orchestration plans
   doctor     workspace inventory of task-family authorities
   run         manage durable orchestrator runs and attempts

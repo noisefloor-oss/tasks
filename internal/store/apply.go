@@ -23,6 +23,27 @@ const (
 	StoreFile = "tasks.sqlite"
 )
 
+// cutoverKind names one §8.6/§8.6A cutover protocol for the shared target
+// builder and receipt machinery: the receipt kind, the feed action, and the
+// deterministic receipt-id domain. The two protocols share every other step.
+type cutoverKind struct {
+	kind   string
+	action string
+	domain string
+}
+
+var (
+	migrationCutover = cutoverKind{kind: ReceiptKindMigration, action: "migrated", domain: "noise-tasks-migration-v1\x00"}
+	adoptionCutover  = cutoverKind{kind: ReceiptKindAdoption, action: "adopted", domain: adoptionReceiptDomain}
+)
+
+// receiptID derives the deterministic receipt id for one request and plan,
+// which is what makes crash-state resumption and replay name the same record.
+func (c cutoverKind) receiptID(requestID, planDigest string) string {
+	sum := sha256.Sum256([]byte(c.domain + requestID + "\x00" + planDigest))
+	return c.kind + "-" + hex.EncodeToString(sum[:8])
+}
+
 // migrateFaultHook is the deterministic crash-injection point for the §8.8
 // migration boundary tests. It fires, in effect order, at "journal-durable"
 // (after the journal's fsync), "source-retired" (after the source unlink and
@@ -133,6 +154,12 @@ func ApplyMigration(bundlePath, commonDir, ownerBoundary string, opts ApplyOptio
 	}
 	if plan.PlanDigest != opts.PlanDigest {
 		return nil, planErrorf("plan digest %s does not match the accepted --digest %s", plan.PlanDigest, opts.PlanDigest)
+	}
+	// §8.6A artifacts never advance alongside a §8.6 cutover.
+	if _, err := ReadMigrationJournal(filepath.Join(storeDir, AdoptionJournalFile)); err == nil {
+		return nil, planErrorf("an adoption recovery journal exists in %s; complete it with migrate adopt apply first", storeDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	familyID := LegacyFamilyUUID(commonDir, ownerBoundary)
 	if err := planMatchesDerivedIdentity(plan, legacyPath, targetPath, ownerBoundary, familyID); err != nil {
@@ -254,7 +281,7 @@ func ApplyMigration(bundlePath, commonDir, ownerBoundary string, opts ApplyOptio
 		if sourcePresent {
 			return nil, planErrorf("dual authority: both the legacy source %s and the target %s exist", legacyPath, targetPath)
 		}
-		return applyVerifyPublished(storeDir, targetPath, plan, familyID, ownerBoundary, journalExists, journalPath, opts.RequestID, inputDigest)
+		return applyVerifyPublished(storeDir, targetPath, plan, familyID, ownerBoundary, journalExists, journalPath, opts.RequestID, inputDigest, migrationCutover)
 	}
 
 	// Target absent. A journal means state 2 (source present) or 3 (source
@@ -271,7 +298,7 @@ func ApplyMigration(bundlePath, commonDir, ownerBoundary string, opts ApplyOptio
 		return nil, planErrorf("nothing to migrate: no legacy source, no journal, and no target in %s", storeDir)
 	}
 
-	receipt, tmpPath, cleanup, err := buildMigrationTarget(storeDir, payloadCopy, manifest, plan, familyID, ownerBoundary, opts.RequestID, inputDigest)
+	receipt, tmpPath, cleanup, err := buildMigrationTarget(storeDir, payloadCopy, manifest, plan, familyID, ownerBoundary, opts.RequestID, inputDigest, migrationCutover)
 	if err != nil {
 		return nil, err
 	}
@@ -428,13 +455,13 @@ func retireVerifiedLegacySource(storeDir, legacyPath string, sourceIdent [2]uint
 // applyVerifyPublished handles §8.6 states 4 and 5: the target is published
 // and must carry the matching embedded migration receipt. State 4 (journal
 // present) verifies, removes the journal, and fsyncs; state 5 is replay.
-func applyVerifyPublished(storeDir, targetPath string, plan *MigrationPlan, familyID, ownerBoundary string, journalExists bool, journalPath, requestID, inputDigest string) (*ApplyResult, error) {
+func applyVerifyPublished(storeDir, targetPath string, plan *MigrationPlan, familyID, ownerBoundary string, journalExists bool, journalPath, requestID, inputDigest string, ck cutoverKind) (*ApplyResult, error) {
 	target, err := openUnlocked(targetPath, false, "")
 	if err != nil {
 		return nil, err
 	}
 	defer target.Close()
-	receipt, err := validatePublishedMigrationTarget(target, targetPath, plan, familyID, ownerBoundary, requestID, inputDigest)
+	receipt, err := validatePublishedTarget(target, targetPath, plan, familyID, ownerBoundary, requestID, inputDigest, ck)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +476,7 @@ func applyVerifyPublished(storeDir, targetPath string, plan *MigrationPlan, fami
 	return &ApplyResult{Receipt: receipt, Replayed: true}, nil
 }
 
-func validatePublishedMigrationTarget(target *DB, targetPath string, plan *MigrationPlan, familyID, ownerBoundary, requestID, inputDigest string) (map[string]any, error) {
+func validatePublishedTarget(target *DB, targetPath string, plan *MigrationPlan, familyID, ownerBoundary, requestID, inputDigest string, ck cutoverKind) (map[string]any, error) {
 	if err := target.IntegrityCheck(); err != nil {
 		return nil, err
 	}
@@ -476,17 +503,17 @@ func validatePublishedMigrationTarget(target *DB, targetPath string, plan *Migra
 	var receiptID, storedDigest, createdAt, receiptBody string
 	err = target.deferred(func(t *tx) error {
 		err := t.QueryRow(`SELECT receipt_id, body, digest, created_at
-			FROM receipts WHERE kind=? AND request_id=?`, ReceiptKindMigration, requestID).
+			FROM receipts WHERE kind=? AND request_id=?`, ck.kind, requestID).
 			Scan(&receiptID, &receiptBody, &storedDigest, &createdAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("read migration receipt: %w", err)
+			return fmt.Errorf("read %s receipt: %w", ck.kind, err)
 		}
 		receipt, err = decodeJSONObject([]byte(receiptBody))
 		if err != nil {
-			return fmt.Errorf("decode migration receipt: %w", err)
+			return fmt.Errorf("decode %s receipt: %w", ck.kind, err)
 		}
 		return nil
 	})
@@ -494,15 +521,15 @@ func validatePublishedMigrationTarget(target *DB, targetPath string, plan *Migra
 		return nil, err
 	}
 	if receipt == nil {
-		return nil, planErrorf("published target %s carries no migration receipt for request %s; every unproven target fails closed", targetPath, requestID)
+		return nil, planErrorf("published target %s carries no %s receipt for request %s; every unproven target fails closed", targetPath, ck.kind, requestID)
 	}
-	if err := validateMigrationReceiptEnvelope(receipt, receiptBody, storedDigest, createdAt, requestID, familyID); err != nil {
+	if err := validateMigrationReceiptEnvelope(receipt, receiptBody, storedDigest, createdAt, requestID, familyID, ck); err != nil {
 		return nil, err
 	}
 	if receipt["inputDigest"] != inputDigest {
-		return nil, &ReplayConflict{Kind: ReceiptKindMigration, RequestID: requestID}
+		return nil, &ReplayConflict{Kind: ck.kind, RequestID: requestID}
 	}
-	if err := validateMigrationReceipt(receipt, receiptBody, receiptID, storedDigest, createdAt, requestID, inputDigest, familyID, plan); err != nil {
+	if err := validateMigrationReceipt(receipt, receiptBody, receiptID, storedDigest, createdAt, requestID, inputDigest, familyID, plan, ck); err != nil {
 		return nil, err
 	}
 	return receipt, nil
@@ -533,7 +560,7 @@ func ValidatePublishedMigrationRecovery(target *DB, commonDir, ownerBoundary str
 	if err != nil {
 		return err
 	}
-	_, err = validatePublishedMigrationTarget(target, filepath.Join(storeDir, StoreFile), plan, familyID, ownerBoundary, journal.RequestID, inputDigest)
+	_, err = validatePublishedTarget(target, filepath.Join(storeDir, StoreFile), plan, familyID, ownerBoundary, journal.RequestID, inputDigest, migrationCutover)
 	return err
 }
 
@@ -542,7 +569,7 @@ func ValidatePublishedMigrationRecovery(target *DB, commonDir, ownerBoundary str
 // SQLite's backup API, never a byte copy of a live database — and embeds the
 // permanent migration receipt plus its event in one transaction. The caller
 // owns the returned cleanup until publication succeeds.
-func buildMigrationTarget(storeDir, payloadCopy string, manifest *Manifest, plan *MigrationPlan, familyID, ownerBoundary, requestID, inputDigest string) (map[string]any, string, func(), error) {
+func buildMigrationTarget(storeDir, payloadCopy string, manifest *Manifest, plan *MigrationPlan, familyID, ownerBoundary, requestID, inputDigest string, ck cutoverKind) (map[string]any, string, func(), error) {
 	payload, err := openUnlocked(payloadCopy, false, "")
 	if err != nil {
 		return nil, "", nil, err
@@ -605,11 +632,11 @@ func buildMigrationTarget(storeDir, payloadCopy string, manifest *Manifest, plan
 	}
 
 	committedAt := nowUTC()
-	receiptID := migrationReceiptID(requestID, plan.PlanDigest)
+	receiptID := ck.receiptID(requestID, plan.PlanDigest)
 	var receipt map[string]any
 	err = fresh.immediate(func(t *tx) error {
 		var err error
-		receipt, err = writeMigrationReceipt(t, manifest, plan, familyID, requestID, inputDigest, receiptID, committedAt)
+		receipt, err = writeMigrationReceipt(t, manifest, plan, familyID, requestID, inputDigest, receiptID, committedAt, ck)
 		if err != nil {
 			return err
 		}
@@ -652,13 +679,13 @@ func buildMigrationTarget(storeDir, payloadCopy string, manifest *Manifest, plan
 	return receipt, tmpPath, cleanup, nil
 }
 
-// writeMigrationReceipt embeds the permanent §8.6 migration receipt and its
-// feed event in the caller's transaction. Inventory counts actual
+// writeMigrationReceipt embeds the permanent §8.6/§8.6A cutover receipt and
+// its feed event in the caller's transaction. Inventory counts actual
 // post-event/post-receipt state.
-func writeMigrationReceipt(t *tx, manifest *Manifest, plan *MigrationPlan, familyID, requestID, inputDigest, receiptID, committedAt string) (map[string]any, error) {
+func writeMigrationReceipt(t *tx, manifest *Manifest, plan *MigrationPlan, familyID, requestID, inputDigest, receiptID, committedAt string, ck cutoverKind) (map[string]any, error) {
 	if err := t.appendEvent(Event{
-		Kind:   ReceiptKindMigration,
-		Action: "migrated",
+		Kind:   ck.kind,
+		Action: ck.action,
 		At:     committedAt,
 		Extra:  map[string]json.RawMessage{"receiptId": json.RawMessage(strconv.Quote(receiptID))},
 	}); err != nil {
@@ -666,18 +693,18 @@ func writeMigrationReceipt(t *tx, manifest *Manifest, plan *MigrationPlan, famil
 	}
 	var seq int64
 	if err := t.QueryRow(`SELECT last_insert_rowid()`).Scan(&seq); err != nil {
-		return nil, fmt.Errorf("read migration event sequence: %w", err)
+		return nil, fmt.Errorf("read %s event sequence: %w", ck.kind, err)
 	}
 	inv, err := countClassInventory(t)
 	if err != nil {
 		return nil, fmt.Errorf("count migrated state inventory: %w", err)
 	}
-	// The transaction already contains the migration event. Account for the
+	// The transaction already contains the cutover event. Account for the
 	// receipt this function is about to insert.
 	inv.Receipts++
 	receipt := map[string]any{
 		"schemaVersion":          int64(ReceiptSchemaVersion),
-		"kind":                   ReceiptKindMigration,
+		"kind":                   ck.kind,
 		"receiptId":              receiptID,
 		"familyId":               familyID,
 		"requestId":              requestID,
@@ -695,7 +722,7 @@ func writeMigrationReceipt(t *tx, manifest *Manifest, plan *MigrationPlan, famil
 		"targetSchemaVersion":    int64(SchemaVersion),
 		"publishedAt":            committedAt,
 	}
-	if _, err := t.insertReceipt(ReceiptKindMigration, receiptID, requestID, receipt, committedAt); err != nil {
+	if _, err := t.insertReceipt(ck.kind, receiptID, requestID, receipt, committedAt); err != nil {
 		return nil, err
 	}
 	return receipt, nil
@@ -725,8 +752,7 @@ func migrationInputDigest(requestID string, plan *MigrationPlan) (string, error)
 // request and plan, which is what makes state 3 reconstruction and state 5
 // replay name the same record.
 func migrationReceiptID(requestID, planDigest string) string {
-	sum := sha256.Sum256([]byte("noise-tasks-migration-v1\x00" + requestID + "\x00" + planDigest))
-	return "migration-" + hex.EncodeToString(sum[:8])
+	return migrationCutover.receiptID(requestID, planDigest)
 }
 
 // planMatchesDerivedIdentity proves the plan names exactly the currently
@@ -818,12 +844,12 @@ func receiptMatchesPlan(receipt map[string]any, plan *MigrationPlan) error {
 	return nil
 }
 
-// validateMigrationReceipt proves that the published receipt row is the
-// exact immutable receipt this plan and request would have written. Replay
+// validateMigrationReceiptEnvelope proves that the published receipt row is
+// the exact immutable receipt this plan and request would have written. Replay
 // cannot require the current task inventory to remain unchanged, but it can
 // and must validate the frozen publication inventory, canonical body, row
 // digest, identities, versions, and event range recorded at publication.
-func validateMigrationReceiptEnvelope(receipt map[string]any, body, rowDigest, rowCreatedAt, requestID, familyID string) error {
+func validateMigrationReceiptEnvelope(receipt map[string]any, body, rowDigest, rowCreatedAt, requestID, familyID string, ck cutoverKind) error {
 	required := map[string]bool{
 		"schemaVersion": true, "kind": true, "receiptId": true,
 		"familyId": true, "requestId": true, "inputDigest": true,
@@ -836,73 +862,73 @@ func validateMigrationReceiptEnvelope(receipt map[string]any, body, rowDigest, r
 	}
 	for key := range required {
 		if _, ok := receipt[key]; !ok {
-			return planErrorf("published migration receipt is missing required key %q", key)
+			return planErrorf("published %s receipt is missing required key %q", ck.kind, key)
 		}
 	}
 	for key := range receipt {
 		if !required[key] {
-			return planErrorf("published migration receipt has unknown key %q", key)
+			return planErrorf("published %s receipt has unknown key %q", ck.kind, key)
 		}
 	}
 	canonical, err := canonicalJSON(receipt)
 	if err != nil || string(canonical) != body {
-		return planErrorf("published migration receipt body is not canonical")
+		return planErrorf("published %s receipt body is not canonical", ck.kind)
 	}
 	computedDigest, err := receiptDigest(receipt)
 	if err != nil {
 		return err
 	}
 	if rowDigest != computedDigest || receipt["receiptDigest"] != rowDigest {
-		return planErrorf("published migration receipt digest does not match its row or body")
+		return planErrorf("published %s receipt digest does not match its row or body", ck.kind)
 	}
 	if got, ok := receipt["schemaVersion"].(json.Number); !ok || got.String() != strconv.Itoa(ReceiptSchemaVersion) {
-		return planErrorf("published migration receipt schemaVersion %v is not %d", receipt["schemaVersion"], ReceiptSchemaVersion)
+		return planErrorf("published %s receipt schemaVersion %v is not %d", ck.kind, receipt["schemaVersion"], ReceiptSchemaVersion)
 	}
 	for key, want := range map[string]string{
-		"kind": ReceiptKindMigration, "familyId": familyID,
+		"kind": ck.kind, "familyId": familyID,
 		"requestId": requestID, "committedAt": rowCreatedAt,
 	} {
 		if got, _ := receipt[key].(string); got != want {
-			return planErrorf("published migration receipt %s %v does not match %s", key, receipt[key], want)
+			return planErrorf("published %s receipt %s %v does not match %s", ck.kind, key, receipt[key], want)
 		}
 	}
 	if _, ok := receipt["inputDigest"].(string); !ok {
-		return planErrorf("published migration receipt inputDigest is not a string")
+		return planErrorf("published %s receipt inputDigest is not a string", ck.kind)
 	}
 	return nil
 }
 
-func validateMigrationReceipt(receipt map[string]any, body, rowReceiptID, rowDigest, rowCreatedAt, requestID, inputDigest, familyID string, plan *MigrationPlan) error {
-	if err := validateMigrationReceiptEnvelope(receipt, body, rowDigest, rowCreatedAt, requestID, familyID); err != nil {
+func validateMigrationReceipt(receipt map[string]any, body, rowReceiptID, rowDigest, rowCreatedAt, requestID, inputDigest, familyID string, plan *MigrationPlan, ck cutoverKind) error {
+	if err := validateMigrationReceiptEnvelope(receipt, body, rowDigest, rowCreatedAt, requestID, familyID, ck); err != nil {
 		return err
 	}
-	expectedReceiptID := migrationReceiptID(requestID, plan.PlanDigest)
+	expectedReceiptID := ck.receiptID(requestID, plan.PlanDigest)
 	for key, want := range map[string]string{
 		"receiptId": expectedReceiptID, "inputDigest": inputDigest,
 		"resultDigest": plan.Backup.SemanticDigest, "publishedAt": rowCreatedAt,
 	} {
 		if got, _ := receipt[key].(string); got != want {
-			return planErrorf("published migration receipt %s %v does not match %s", key, receipt[key], want)
+			return planErrorf("published %s receipt %s %v does not match %s", ck.kind, key, receipt[key], want)
 		}
 	}
 	if rowReceiptID != expectedReceiptID {
-		return planErrorf("published migration receipt row id %s does not match %s", rowReceiptID, expectedReceiptID)
+		return planErrorf("published %s receipt row id %s does not match %s", ck.kind, rowReceiptID, expectedReceiptID)
 	}
 	if err := receiptMatchesPlan(receipt, plan); err != nil {
 		return err
 	}
 	invObj, ok := receipt["inventory"].(map[string]any)
 	if !ok {
-		return planErrorf("published migration receipt inventory is not an object")
+		return planErrorf("published %s receipt inventory is not an object", ck.kind)
 	}
 	gotInventory, err := parseInventory(invObj)
 	if err != nil {
-		return planErrorf("published migration receipt inventory is invalid: %v", err)
+		return planErrorf("published %s receipt inventory is invalid: %v", ck.kind, err)
 	}
 	wantInventory := plan.Inventory
 	// Publishing a v3 compatibility payload with this v5 binary retains two
 	// new events: schema/upgraded during the private v3->v5 augmentation, then
-	// migration/migrated when the receipt is committed. Each append applies
+	// the cutover event when the receipt is committed. Each append applies
 	// the same retention cap, which is equivalent to adding two and capping.
 	wantInventory.Events += 2
 	if wantInventory.Events > MaxRetainedEvents {
@@ -911,18 +937,18 @@ func validateMigrationReceipt(receipt map[string]any, body, rowReceiptID, rowDig
 	wantInventory.Receipts++
 	wantInventory.WorktreeSagas = plan.Inventory.Bindings
 	if *gotInventory != wantInventory {
-		return planErrorf("published migration receipt inventory does not match the planned publication inventory")
+		return planErrorf("published %s receipt inventory does not match the planned publication inventory", ck.kind)
 	}
 	seq, ok := receipt["eventSeq"].(map[string]any)
 	if !ok || len(seq) != 2 {
-		return planErrorf("published migration receipt eventSeq is invalid")
+		return planErrorf("published %s receipt eventSeq is invalid", ck.kind)
 	}
 	first, firstOK := seq["first"].(json.Number)
 	last, lastOK := seq["last"].(json.Number)
 	firstN, firstErr := first.Int64()
 	lastN, lastErr := last.Int64()
 	if !firstOK || !lastOK || firstErr != nil || lastErr != nil || firstN <= 0 || firstN != lastN {
-		return planErrorf("published migration receipt eventSeq is invalid")
+		return planErrorf("published %s receipt eventSeq is invalid", ck.kind)
 	}
 	return nil
 }

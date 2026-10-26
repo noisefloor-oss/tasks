@@ -677,8 +677,8 @@ func TestReadMigrationJournalStrictRefusals(t *testing.T) {
 		"bad family":            strings.Replace(good, `"familyId":"`, `"familyId":"not-a-uuid`, 1),
 		"bad request id":        strings.Replace(good, `"requestId":"migrate-1"`, `"requestId":"-bad"`, 1),
 		"wrong schema version":  strings.Replace(good, `"schemaVersion":1`, `"schemaVersion":2`, 1),
-		"wrong target schema":   strings.Replace(good, `"targetSchemaVersion":5`, `"targetSchemaVersion":1`, 1),
-		"retired target schema": strings.Replace(good, `"targetSchemaVersion":5`, `"targetSchemaVersion":4`, 1),
+		"wrong target schema":   strings.Replace(good, `"targetSchemaVersion":6`, `"targetSchemaVersion":1`, 1),
+		"retired target schema": strings.Replace(good, `"targetSchemaVersion":6`, `"targetSchemaVersion":4`, 1),
 		"noncanonical encoding": strings.Replace(good, `,"requestId":`, ` ,  "requestId" :`, 1),
 		"oversize":              good[:len(good)-1] + strings.Repeat(" ", JournalMaxBytes) + "}",
 	}

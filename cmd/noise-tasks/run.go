@@ -275,7 +275,7 @@ func cmdRunStart(args []string, stdout, stderr io.Writer) int {
 	requestID := fs.String("request-id", "", "request id for run replay")
 	var ttl int
 	decimalIntVar(fs, &ttl, "ttl", "attempt lease time-to-live in seconds")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -351,7 +351,7 @@ func cmdRunRetry(args []string, stdout, stderr io.Writer) int {
 	fs := newRunFlagSet("run retry", stderr, &cf, false)
 	var capability runCapabilityFlags
 	capability.register(fs, true)
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -380,7 +380,7 @@ func cmdRunRenew(args []string, stdout, stderr io.Writer) int {
 	fs := newRunFlagSet("run renew", stderr, &cf, false)
 	var capability runCapabilityFlags
 	capability.register(fs, true)
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -423,7 +423,7 @@ func cmdRunFinish(args []string, stdout, stderr io.Writer) int {
 	var revision int
 	decimalIntVar(fs, &revision, "revision", "task revision for --task-status")
 	resultDigest := fs.String("result-digest", "", "optional lowercase sha256 digest")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -490,7 +490,7 @@ func cmdRunCancel(args []string, stdout, stderr io.Writer) int {
 	var capability runCapabilityFlags
 	capability.register(fs, false)
 	force := fs.Bool("force", false, "operator cancellation without run capabilities")
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -539,7 +539,7 @@ func cmdRunCancel(args []string, stdout, stderr io.Writer) int {
 func cmdRunShow(args []string, stdout, stderr io.Writer) int {
 	var cf commonFlags
 	fs := newRunFlagSet("run show", stderr, &cf, false)
-	if code, ok := parseFlags(fs, runIDFirstArgs(args)); !ok {
+	if code, ok := parseFlags(fs, stdout, runIDFirstArgs(args)); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
@@ -595,7 +595,7 @@ func cmdRunList(args []string, stdout, stderr io.Writer) int {
 	task := fs.String("task", "", "filter by top-level task id")
 	status := fs.String("status", "", "filter by run status")
 	owner := fs.String("owner", "", "filter by owner")
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, stdout, args); !ok {
 		return code
 	}
 	if fs.NArg() != 0 {
@@ -661,7 +661,8 @@ func runConflictOut(e *store.RunConflict) any {
 		Task      string `json:"task,omitempty"`
 		RunID     int64  `json:"runId,omitempty"`
 		Attempt   int64  `json:"attempt,omitempty"`
-	}{"run-conflict", e.Operation, e.Tag, e.Task, e.RunID, e.Attempt}
+		Hint      string `json:"hint,omitempty"`
+	}{"run-conflict", e.Operation, e.Tag, e.Task, e.RunID, e.Attempt, e.Hint}
 }
 
 // runIDFirstArgs admits the documented positional-first spelling while also

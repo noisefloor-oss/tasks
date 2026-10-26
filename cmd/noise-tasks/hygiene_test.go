@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/noisefloor-oss/tasks/internal/store"
 )
 
 func runHygiene(args ...string) (int, string, string) {
@@ -17,10 +15,11 @@ func runHygiene(args ...string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
-// decodeHygiene strictly decodes the §8.9 JSON report.
-func decodeHygiene(t *testing.T, stdout string) *store.HygieneReport {
+// decodeHygiene strictly decodes the §8.9 JSON report, worktree classes
+// included.
+func decodeHygiene(t *testing.T, stdout string) *hygieneReportOut {
 	t.Helper()
-	var got store.HygieneReport
+	var got hygieneReportOut
 	dec := json.NewDecoder(strings.NewReader(stdout))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&got); err != nil {
@@ -30,7 +29,7 @@ func decodeHygiene(t *testing.T, stdout string) *store.HygieneReport {
 }
 
 func TestHygieneCommandEmptyAndUsage(t *testing.T) {
-	dir := chdirGitDir(t)
+	dir := chdirWorktreeRepo(t)
 	seedProjectStore(t, dir, "main", "hygiene empty")
 
 	code, stdout, stderr := runHygiene("--json")
@@ -58,7 +57,7 @@ func TestHygieneCommandEmptyAndUsage(t *testing.T) {
 }
 
 func TestHygieneCommandReportsResidue(t *testing.T) {
-	dir := chdirGitDir(t)
+	dir := chdirWorktreeRepo(t)
 	seedProjectStore(t, dir, "main", "hygiene run", "hygiene drift", "hygiene claim")
 
 	// A claimless in-progress task.
@@ -110,7 +109,7 @@ func TestHygieneCommandReportsResidue(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "stale run") ||
 		!strings.Contains(stdout, "expired claim") ||
 		!strings.Contains(stdout, "in-progress without live claim") ||
-		!strings.Contains(stdout, "3 lifecycle residue finding(s)") {
+		!strings.Contains(stdout, "3 lifecycle finding(s): 1 stale run(s), 1 expired claim(s), 1 in-progress without live claim, 0 unowned registered worktree(s), 0 primary checkout finding(s)") {
 		t.Fatalf("human hygiene = code %d stdout %q", code, stdout)
 	}
 }
@@ -132,7 +131,7 @@ func startRunCLITTL(t *testing.T, claimToken int64, requestID string, ttl int64)
 }
 
 func TestHygieneRetryableRunIsNotStale(t *testing.T) {
-	dir := chdirGitDir(t)
+	dir := chdirWorktreeRepo(t)
 	seedProjectStore(t, dir, "main", "hygiene retryable")
 	claimToken := claimTokenForRun(t)
 	start := startRunCLITTL(t, claimToken, "hygiene.retryable", 2)
