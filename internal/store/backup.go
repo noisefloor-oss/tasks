@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -38,32 +37,4 @@ func (d *DB) IntegrityCheck() error {
 		return fmt.Errorf("integrity check on %s: %s", d.path, result)
 	}
 	return nil
-}
-
-// Sync fsyncs the database file and its containing directory. In WAL mode
-// recent commits live in the -wal sidecar, so callers must checkpoint
-// (PRAGMA wal_checkpoint) first when they need the main file alone to be
-// durable; the §8.6 publication path does exactly that.
-func (d *DB) Sync() error {
-	if err := d.db.Ping(); err != nil {
-		return err
-	}
-	f, err := os.Open(d.path)
-	if err != nil {
-		return fmt.Errorf("open task store %s for fsync: %w", d.path, err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("fsync task store %s: %w", d.path, err)
-	}
-	f.Close()
-	dir, err := os.Open(filepath.Dir(d.path))
-	if err != nil {
-		return fmt.Errorf("open task store directory for fsync: %w", err)
-	}
-	if err := dir.Sync(); err != nil {
-		dir.Close()
-		return fmt.Errorf("fsync task store directory: %w", err)
-	}
-	return dir.Close()
 }

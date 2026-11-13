@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -139,6 +140,19 @@ func buildAdoptionSnapshot(doc *adoptionDocument) (*legacySnapshot, error) {
 	return snap, nil
 }
 
+func adoptionNumericID(id string) (int64, bool) {
+	if id == "" || id[0] == '0' {
+		return 0, false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	return n, err == nil && n > 0
+}
+
 func buildAdoptionTag(name string, obj map[string]json.RawMessage) (*legacyTagSnapshot, error) {
 	entry := &legacyTagSnapshot{name: name}
 	for key, raw := range obj {
@@ -173,12 +187,27 @@ func buildAdoptionTag(name string, obj map[string]json.RawMessage) (*legacyTagSn
 		return nil, fmt.Errorf("adoption tag %q tasks: %w", name, err)
 	}
 	entry.tasks = make([]*Task, len(records))
-	maxID := 0
+	seen := map[int64]string{}
+	maxID := int64(0)
 	done := 0
 	for i, raw := range records {
 		task, err := taskFromFields(name, raw)
 		if err != nil {
 			return nil, fmt.Errorf("adoption tag %q task %d: %w", name, i, err)
+		}
+		n, ok := adoptionNumericID(task.ID)
+		if !ok {
+			return nil, legacyRefusalf("adoption tag %q has invalid task id %q", name, task.ID)
+		}
+		if previous, exists := seen[n]; exists {
+			return nil, legacyRefusalf("adoption tag %q has duplicate task id %q (numeric duplicate of %q)", name, task.ID, previous)
+		}
+		seen[n] = task.ID
+		if n == math.MaxInt64 {
+			return nil, legacyRefusalf("adoption tag %q task %s causes nextId overflow", name, task.ID)
+		}
+		if n > maxID {
+			maxID = n
 		}
 		if !validStatuses[task.Status] {
 			return nil, legacyRefusalf("adoption tag %q task %s has invalid status %q", name, task.ID, task.Status)
@@ -188,14 +217,11 @@ func buildAdoptionTag(name string, obj map[string]json.RawMessage) (*legacyTagSn
 		}
 		task.Revision = 1
 		entry.tasks[i] = task
-		if n, err := strconv.Atoi(task.ID); err == nil && n > maxID {
-			maxID = n
-		}
 		if task.Status == "done" {
 			done++
 		}
 	}
-	entry.nextID = int64(maxID + 1)
+	entry.nextID = maxID + 1
 	entry.taskCount = int64(len(records))
 	entry.completedCount = int64(done)
 	return entry, nil

@@ -206,6 +206,80 @@ func TestPerformWorktreeRemovalEffectCrashBoundaries(t *testing.T) {
 	}
 }
 
+func TestFindRemovalAdminStageIgnoresUnrelatedDegradedDirectories(t *testing.T) {
+	_, _, _, plan := removalEffectFixture(t, "degraded-stray", false)
+	admin := removalAdminDir(t, plan)
+	unrelated := removalAdminStage(plan, admin) + "-foreign"
+	if err := os.Mkdir(unrelated, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := findRemovalAdminStage(plan)
+	if err != nil || stage != "" {
+		t.Fatalf("unrelated degraded directory adopted as stage %q, err %v", stage, err)
+	}
+
+	expected := removalAdminStage(plan, admin)
+	if err := os.Rename(admin, expected); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(expected, "gitdir")); err != nil {
+		t.Fatal(err)
+	}
+	stage, err = findRemovalAdminStage(plan)
+	if err != nil || stage != expected {
+		t.Fatalf("exact degraded stage = %q, err %v; want %q", stage, err, expected)
+	}
+	if _, err := os.Lstat(unrelated); err != nil {
+		t.Fatalf("unrelated directory was touched: %v", err)
+	}
+}
+
+func TestRemovalAdminStageUsesCollisionAssignedRegistration(t *testing.T) {
+	_, _, _, plan := removalEffectFixture(t, "degraded-collision", false)
+	admin := removalAdminDir(t, plan)
+	collision := admin + "1"
+	if err := os.Rename(admin, collision); err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte("gitdir: " + collision + "\n")
+	if err := os.WriteFile(filepath.Join(plan.TargetPath, ".git"), marker, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	targetStage := removalTargetStage(plan)
+	if err := os.Rename(plan.TargetPath, targetStage); err != nil {
+		t.Fatal(err)
+	}
+	adminStage := removalAdminStage(plan, collision)
+	if err := os.Rename(collision, adminStage); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(adminStage, "gitdir")); err != nil {
+		t.Fatal(err)
+	}
+	foreign := removalAdminStage(plan, plan.TargetPath)
+	if err := os.Mkdir(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	stage, err := findRemovalAdminStage(plan)
+	if err != nil || stage != adminStage {
+		t.Fatalf("collision stage = %q, %v; want %q", stage, err, adminStage)
+	}
+	outcome, err := PerformWorktreeRemovalEffect(plan)
+	var mismatch *WorktreeEffectIdentityMismatch
+	if outcome != WorktreeRemoveCleanupRequired || !errors.As(err, &mismatch) {
+		t.Fatalf("foreign residual was not refused: %q, %v (%T)", outcome, err, err)
+	}
+	for _, path := range []string{targetStage, adminStage} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned stage remains at %s: %v", path, err)
+		}
+	}
+	if _, err := os.Lstat(foreign); err != nil {
+		t.Fatalf("foreign stage was removed: %v", err)
+	}
+}
+
 func TestPerformWorktreeRemovalEffectDirtyRefusalAndForce(t *testing.T) {
 	t.Run("refused without force", func(t *testing.T) {
 		db, _, _, plan := removalEffectFixture(t, "dirty", false)

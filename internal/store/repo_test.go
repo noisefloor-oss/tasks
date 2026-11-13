@@ -510,11 +510,7 @@ func TestBackupConsistency(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		addTask(t, db, "main", fmt.Sprintf("task-%d", i))
 	}
-	srcSnap, err := db.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	srcDigest, err := srcSnap.Digest()
+	srcDigest, _, _, err := db.ClassDigests()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,11 +557,7 @@ func TestBackupConsistency(t *testing.T) {
 	if len(tasks) != 5 {
 		t.Errorf("backup holds %d tasks, want 5 (the uncommitted write must not leak)", len(tasks))
 	}
-	dstSnap, err := backup.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dstDigest, err := dstSnap.Digest()
+	dstDigest, _, _, err := backup.ClassDigests()
 	if err != nil {
 		t.Fatal(err)
 	}

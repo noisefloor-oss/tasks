@@ -163,6 +163,19 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 	var id string
 	if cf.file != "" {
 		err := mutateFixture(&cf, func(f *backlog.File, tag string) error {
+			// A link already carried by a task of this tag makes the add a
+			// replay (SPEC §4): return the existing id and write nothing.
+			// A holder in another tag is a typed conflict. The remaining
+			// flags are irrelevant in both cases.
+			if link != nil {
+				if holderTag, existingID, ok := f.FindTaskByLink(*link); ok {
+					if holderTag != tag {
+						return &backlog.ErrLinkExists{Link: *link, ExistingTag: holderTag, ExistingID: existingID}
+					}
+					id = existingID
+					return nil
+				}
+			}
 			for _, dep := range deps {
 				if _, err := f.Task(tag, dep); err != nil {
 					return fmt.Errorf("dependency %s does not exist in tag %q", dep, tag)
@@ -178,18 +191,6 @@ func cmdAdd(args []string, stdout, stderr io.Writer) int {
 				}
 				if !milestoneKnown(entries, *milestoneF) {
 					return &backlog.ErrMilestoneNotFound{Tag: tag, Name: *milestoneF}
-				}
-			}
-			// A link already carried by a task of this tag makes the add a
-			// replay (SPEC §4): return the existing id and write nothing.
-			// A holder in another tag is a typed conflict.
-			if link != nil {
-				if holderTag, existingID, ok := f.FindTaskByLink(*link); ok {
-					if holderTag != tag {
-						return &backlog.ErrLinkExists{Link: *link, ExistingTag: holderTag, ExistingID: existingID}
-					}
-					id = existingID
-					return nil
 				}
 			}
 			var err error

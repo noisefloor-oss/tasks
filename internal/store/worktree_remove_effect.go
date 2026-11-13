@@ -223,9 +223,30 @@ func findRemovalAdmin(plan *WorktreeRemovePlan) (string, error) {
 	return admin, nil
 }
 
+func removalAdminFromTargetMarker(plan *WorktreeRemovePlan) (string, error) {
+	markers := []string{filepath.Join(plan.TargetPath, ".git")}
+	if stage := removalTargetStage(plan); stage != "" {
+		markers = append(markers, filepath.Join(stage, ".git"))
+	}
+	for _, marker := range markers {
+		admin, err := parseRemovalAdminMarker(plan, marker)
+		if err == nil {
+			return admin, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
 func findRemovalAdminStage(plan *WorktreeRemovePlan) (string, error) {
 	if plan.SagaToken <= 0 {
 		return "", nil
+	}
+	expectedAdmin, err := removalAdminFromTargetMarker(plan)
+	if err != nil {
+		return "", err
 	}
 	prefix := ".noise-remove-" + strconv.FormatInt(plan.SagaToken, 10) + "-"
 	entries, err := os.ReadDir(plan.RegistrationRoot)
@@ -246,10 +267,16 @@ func findRemovalAdminStage(plan *WorktreeRemovePlan) (string, error) {
 		}
 		backref, err := os.ReadFile(filepath.Join(stage, "gitdir"))
 		if errors.Is(err, fs.ErrNotExist) {
-			// A partial deletion already removed this staged
-			// registration's marker. The saga-fence-prefixed name is the
-			// recorded rename target, so the directory is provably this
-			// saga's own stage; replay must finish deleting it.
+			if expectedAdmin == "" {
+				return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
+			}
+			if stage != removalAdminStage(plan, expectedAdmin) {
+				continue
+			}
+			// The staged target's marker proves Git's actual registration
+			// basename, including a collision-assigned name. Only that exact
+			// registration's stage is safe to finish deleting after its own
+			// marker has gone.
 			if degraded != "" {
 				return "", &WorktreeEffectIdentityMismatch{SagaID: plan.SagaID}
 			}

@@ -14,8 +14,8 @@ on:
         description: Candidate version (build and package only; never publish)
         required: true
         type: choice
-        options: ['2.9.1']
-        default: '2.9.1'
+        options: ['2.11.0']
+        default: '2.11.0'
 
 # Jobs that execute repository code never hold release-writing authority.
 permissions:
@@ -72,7 +72,7 @@ jobs:
           CANDIDATE_VERSION: ${{ inputs.version }}
         run: |
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            test "$CANDIDATE_VERSION" = 2.9.1
+            test "$CANDIDATE_VERSION" = 2.11.0
             version="$CANDIDATE_VERSION"
           else
             [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1

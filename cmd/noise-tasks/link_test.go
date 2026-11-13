@@ -166,6 +166,35 @@ func TestCLIFixtureSetLinkSurface(t *testing.T) {
 	}
 }
 
+func TestCLIFixtureAddLinkReplayIgnoresOtherFlags(t *testing.T) {
+	dir := chdirGitDir(t)
+	path := dir + "/fixture.json"
+	doc := strings.Replace(twoTaskFixtureDoc, `"title": "first"`,
+		`"title": "first",
+        "externalLink": {"family":"github","repository":"acme/widgets","issue":"214"}`, 1)
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, flags := range [][]string{{"--dependencies", "999"}, {"--milestone", "ghost"}} {
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"--file", path, "--title", "duplicate", "--link", "github/acme/widgets#214"}
+		code, stdout, stderr := runCmd(cmdAdd, append(args, flags...)...)
+		if code != 0 || strings.TrimSpace(stdout) != "1" {
+			t.Fatalf("replay with %v exit %d stdout %q stderr %q", flags, code, stdout, stderr)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("replay with %v rewrote the document", flags)
+		}
+	}
+}
+
 func TestCLIFixtureAddLinkCrossTagRefuses(t *testing.T) {
 	dir := chdirGitDir(t)
 	path := dir + "/twotags.json"
@@ -201,7 +230,7 @@ func TestCLIFixtureAddLinkCrossTagRefuses(t *testing.T) {
 	// The holder lives in main; adding to other must refuse naming it,
 	// never return main's id as if it were other's.
 	code, stdout, stderr := runCmd(cmdAdd, "--file", path, "--tag", "other",
-		"--title", "wrong tag", "--link", "github/acme/widgets#214")
+		"--title", "wrong tag", "--link", "github/acme/widgets#214", "--dependencies", "999")
 	if code != 3 || stdout != "" || !strings.Contains(stderr, `task 1 in tag "main"`) {
 		t.Fatalf("cross-tag add exit %d stdout %q stderr %q", code, stdout, stderr)
 	}

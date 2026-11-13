@@ -49,7 +49,7 @@ func decodeSetupResult(t *testing.T, stdout string) setupResult {
 	return result
 }
 
-// storeDigest renders the database's §8.6 semantic digest for comparisons.
+// storeDigest renders the database's §8.5 semantic digest for comparisons.
 func storeDigest(t *testing.T, path string) string {
 	t.Helper()
 	db, err := store.Open(path)
@@ -57,15 +57,11 @@ func storeDigest(t *testing.T, path string) string {
 		t.Fatalf("open store: %v", err)
 	}
 	defer db.Close()
-	snap, err := db.Snapshot()
-	if err != nil {
-		t.Fatalf("snapshot: %v", err)
-	}
-	digest, err := snap.Digest()
+	semantic, _, _, err := db.ClassDigests()
 	if err != nil {
 		t.Fatalf("digest: %v", err)
 	}
-	return digest
+	return semantic
 }
 
 func TestSetupFirstCreateAndIdempotentJSON(t *testing.T) {

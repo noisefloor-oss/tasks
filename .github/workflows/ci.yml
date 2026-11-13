@@ -14,12 +14,13 @@ permissions:
 
 jobs:
   checks:
-    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","native-linux"]') }}
+    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 30
     steps:
-      - name: Reject external fork source on persistent runners
+      - name: Reject unadmitted external fork source
         if: github.repository != 'noisefloor-oss/tasks' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: |
-          echo "Import this change into a same-repository branch before running self-hosted CI." >&2
+          echo "Import this change into a same-repository branch before CI certification." >&2
           exit 1
       - uses: actions/checkout@v4
         with:
@@ -56,12 +57,13 @@ jobs:
 
   export:
     if: github.event_name != 'pull_request'
-    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","native-linux"]') }}
+    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 30
     steps:
-      - name: Reject external fork source on persistent runners
+      - name: Reject unadmitted external fork source
         if: github.repository != 'noisefloor-oss/tasks' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: |
-          echo "Import this change into a same-repository branch before running self-hosted CI." >&2
+          echo "Import this change into a same-repository branch before CI certification." >&2
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -75,7 +77,8 @@ jobs:
   build:
     needs: [checks, export]
     if: always()
-    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","native-linux"]') }}
+    runs-on: ${{ github.repository == 'noisefloor-oss/tasks' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 5
     steps:
       - name: Enforce the required CI result
         env:

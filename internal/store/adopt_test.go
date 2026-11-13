@@ -153,6 +153,13 @@ func TestAdoptionGraphRefusals(t *testing.T) {
 		{"subtask self dependency", `{"main":{"tasks":[{"id":"1","title":"a","status":"pending","dependencies":[],"subtasks":[{"id":1,"title":"x","status":"pending","dependencies":["1"],"parentTaskId":"1"}],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "depends on itself"},
 		{"unknown milestone", `{"main":{"tasks":[{"id":"1","title":"a","status":"pending","milestone":"nope","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "unknown milestone"},
 		{"invalid status", `{"main":{"tasks":[{"id":"1","title":"a","status":"wat","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid status"},
+		{"non-numeric id", `{"main":{"tasks":[{"id":"abc","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"zero id", `{"main":{"tasks":[{"id":"0","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"negative id", `{"main":{"tasks":[{"id":"-1","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"padded id", `{"main":{"tasks":[{"id":"01","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"numerically duplicate id", `{"main":{"tasks":[{"id":"1","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"},{"id":"01","title":"b","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"overflowing id", `{"main":{"tasks":[{"id":"9223372036854775808","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "invalid task id"},
+		{"next id overflow", `{"main":{"tasks":[{"id":"9223372036854775807","title":"a","status":"pending","dependencies":[],"subtasks":[],"updatedAt":"2026-01-01T00:00:00Z"}]}}`, "nextId overflow"},
 		{"missing tasks key", `{"main":{"metadata":{}}}`, "missing"},
 	}
 	for _, tc := range cases {
