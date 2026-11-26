@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,9 +40,11 @@ func TestHygieneCommandEmptyAndUsage(t *testing.T) {
 		t.Fatalf("hygiene = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	got := decodeHygiene(t, stdout)
-	if got.SchemaVersion != 1 || got.Now == "" ||
+	if got.SchemaVersion != 2 || got.Now == "" ||
 		got.StaleRuns == nil || got.ExpiredClaims == nil || got.ClaimlessInProgress == nil ||
-		len(got.StaleRuns) != 0 || len(got.ExpiredClaims) != 0 || len(got.ClaimlessInProgress) != 0 {
+		got.RetryableRuns == nil || got.Sagas == nil ||
+		len(got.StaleRuns) != 0 || len(got.ExpiredClaims) != 0 || len(got.ClaimlessInProgress) != 0 ||
+		len(got.RetryableRuns) != 0 || len(got.Sagas) != 0 {
 		t.Fatalf("hygiene = %+v", got)
 	}
 
@@ -109,7 +114,7 @@ func TestHygieneCommandReportsResidue(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "stale run") ||
 		!strings.Contains(stdout, "expired claim") ||
 		!strings.Contains(stdout, "in-progress without live claim") ||
-		!strings.Contains(stdout, "3 lifecycle finding(s): 1 stale run(s), 1 expired claim(s), 1 in-progress without live claim, 0 unowned registered worktree(s), 0 primary checkout finding(s)") {
+		!strings.Contains(stdout, "3 lifecycle finding(s): 1 stale run(s), 1 expired claim(s), 1 in-progress without live claim, 0 retryable run(s), 0 stuck worktree saga(s), 0 unowned registered worktree(s), 0 primary checkout finding(s)") {
 		t.Fatalf("human hygiene = code %d stdout %q", code, stdout)
 	}
 }
@@ -157,5 +162,86 @@ func TestHygieneRetryableRunIsNotStale(t *testing.T) {
 	got := decodeHygiene(t, stdout)
 	if len(got.StaleRuns) != 0 {
 		t.Fatalf("retryable run reported stale after original expiry: %+v", got.StaleRuns)
+	}
+	// The same run is reported as its own class: an explicit
+	// retry-or-cancel decision the orchestrator owns, never lease-stale.
+	if len(got.RetryableRuns) != 1 {
+		t.Fatalf("retryable run not reported as its own class: %+v", got.RetryableRuns)
+	}
+	run := got.RetryableRuns[0]
+	if run.RunID != start.RunID || run.Tag != "main" || run.Task != "1" ||
+		run.Owner != "agent-a" || run.Attempt != start.Attempt || run.UpdatedAt == "" {
+		t.Fatalf("retryable run = %+v", run)
+	}
+}
+
+func TestHygieneReportsStuckSagasWithPresence(t *testing.T) {
+	dir := chdirWorktreeRepo(t)
+	runID, claimToken, attemptToken, attempt := provisionCLISeed(t, dir, "hygiene saga", "wt.hygiene.saga")
+	path := canonTestPath(t, dir, "main-1")
+	code, _, stderr := runCmd(cmdWorktree, provisionArgs(runID, claimToken, attemptToken, attempt, "wt.hygiene.saga.provision")...)
+	if code != 0 {
+		t.Fatalf("provision exit %d, stderr: %s", code, stderr)
+	}
+	// A cancelled run schedules the bound workspace's removal: a pending
+	// removal saga, reported with its path and branch presence (§8.9).
+	code, _, stderr = runCmd(cmdRun, "cancel", "--force", "--request-id", "wt.hygiene.saga.cancel", strconv.FormatInt(runID, 10))
+	if code != 0 {
+		t.Fatalf("cancel exit %d, stderr: %s", code, stderr)
+	}
+
+	code, stdout, stderr := runHygiene("--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("hygiene = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	got := decodeHygiene(t, stdout)
+	if len(got.Sagas) != 1 {
+		t.Fatalf("stuck sagas = %+v", got.Sagas)
+	}
+	saga := got.Sagas[0]
+	if saga.Operation != "remove" || saga.Status != "pending" || saga.Tag != "main" || saga.Task != "1" ||
+		saga.RunID == nil || *saga.RunID != runID ||
+		saga.Path != path || !saga.PathExists || saga.Branch != "tasks/main/1" || !saga.BranchExists || saga.UpdatedAt == "" {
+		t.Fatalf("stuck saga = %+v", saga)
+	}
+	if strings.Contains(stdout, "sagaToken") || strings.Contains(stdout, "sagaFence") {
+		t.Fatalf("hygiene output mentions saga tokens: %s", stdout)
+	}
+
+	// A branch deleted out-of-band is reported missing explicitly: it is
+	// the fact that blocks the §9.4 removal proof, never a silence.
+	gitCmd(t, dir, "update-ref", "-d", "refs/heads/tasks/main/1")
+	code, stdout, stderr = runHygiene("--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("hygiene = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	got = decodeHygiene(t, stdout)
+	if len(got.Sagas) != 1 || got.Sagas[0].BranchExists || !got.Sagas[0].PathExists {
+		t.Fatalf("stuck saga after out-of-band branch deletion = %+v", got.Sagas)
+	}
+
+	code, stdout, _ = runHygiene()
+	if code != 0 || !strings.Contains(stdout, "stuck worktree saga") ||
+		!strings.Contains(stdout, "branch tasks/main/1 missing") ||
+		!strings.Contains(stdout, "1 stuck worktree saga(s)") {
+		t.Fatalf("human hygiene = code %d stdout %q", code, stdout)
+	}
+
+	// A dangling symlink at the recorded path is presence, not absence:
+	// Stat follows the link and reports it gone, while recovery's Lstat
+	// refuses the same residual link, so cleanup is still blocked.
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), path); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runHygiene("--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("hygiene = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	got = decodeHygiene(t, stdout)
+	if len(got.Sagas) != 1 || !got.Sagas[0].PathExists || got.Sagas[0].BranchExists {
+		t.Fatalf("a dangling symlink at the saga path is presence: %+v", got.Sagas)
 	}
 }

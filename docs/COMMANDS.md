@@ -85,7 +85,11 @@ command, and `noise-tasks <command> -h`, `-help`, or `--help` shows that
 command's — or command group's — usage on stdout; help always exits 0.
 
 `noise-tasks hygiene` is the read-only fleet report: stale runs, expired
-claims, and claimless in-progress tasks from the task store, plus every
+claims, and claimless in-progress tasks from the task store, retryable
+runs as their own class (an explicit retry-or-cancel decision, never
+lease-stale), every nonterminal worktree saga with its path and branch
+presence (a missing retained branch that blocks the removal proof is
+named, never silent), plus every
 Git-registered worktree the engine does not own (path, branch or detached
 head, existence, dirtiness — review checkouts anywhere on disk, not just
 under `.worktrees/`) and the primary checkout's state when it is detached

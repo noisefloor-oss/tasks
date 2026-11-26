@@ -39,6 +39,8 @@ func cmdHygiene(args []string, stdout, stderr io.Writer) int {
 		StaleRuns:           report.StaleRuns,
 		ExpiredClaims:       report.ExpiredClaims,
 		ClaimlessInProgress: report.ClaimlessInProgress,
+		RetryableRuns:       report.RetryableRuns,
+		Sagas:               report.Sagas,
 		UnownedWorktrees:    unowned,
 		PrimaryCheckout:     primary,
 	}
@@ -62,6 +64,8 @@ type hygieneReportOut struct {
 	StaleRuns           []store.HygieneStaleRun      `json:"staleRuns"`
 	ExpiredClaims       []store.HygieneExpiredClaim  `json:"expiredClaims"`
 	ClaimlessInProgress []store.HygieneClaimlessTask `json:"claimlessInProgress"`
+	RetryableRuns       []store.HygieneRetryableRun  `json:"retryableRuns"`
+	Sagas               []store.HygieneStuckSaga     `json:"sagas"`
 	UnownedWorktrees    []HygieneWorktreeRow         `json:"unownedWorktrees"`
 	PrimaryCheckout     HygienePrimaryRow            `json:"primaryCheckout"`
 }
@@ -85,6 +89,17 @@ func writeHygieneHuman(w io.Writer, r *hygieneReportOut) {
 		fmt.Fprintf(w, "in-progress without live claim %s/%s updated %s\n",
 			row.Tag, row.Task, row.UpdatedAt)
 	}
+	for _, row := range r.RetryableRuns {
+		total++
+		fmt.Fprintf(w, "retryable run %d %s/%s owner %s attempt %d updated %s\n",
+			row.RunID, row.Tag, row.Task, row.Owner, row.Attempt, row.UpdatedAt)
+	}
+	for _, row := range r.Sagas {
+		total++
+		fmt.Fprintf(w, "stuck worktree saga %d %s %s %s/%s path %s %s branch %s %s\n",
+			row.SagaID, row.Operation, row.Status, row.Tag, row.Task,
+			row.Path, existsLabel(row.PathExists), row.Branch, existsLabel(row.BranchExists))
+	}
 	for _, row := range r.UnownedWorktrees {
 		total++
 		fmt.Fprintf(w, "unowned worktree %s %s %s%s\n", row.Path,
@@ -103,9 +118,9 @@ func writeHygieneHuman(w io.Writer, r *hygieneReportOut) {
 		fmt.Fprintln(w, "no lifecycle residue found")
 		return
 	}
-	fmt.Fprintf(w, "%d lifecycle finding(s): %d stale run(s), %d expired claim(s), %d in-progress without live claim, %d unowned registered worktree(s), %d primary checkout finding(s)\n",
+	fmt.Fprintf(w, "%d lifecycle finding(s): %d stale run(s), %d expired claim(s), %d in-progress without live claim, %d retryable run(s), %d stuck worktree saga(s), %d unowned registered worktree(s), %d primary checkout finding(s)\n",
 		total, len(r.StaleRuns), len(r.ExpiredClaims), len(r.ClaimlessInProgress),
-		len(r.UnownedWorktrees), primaryFindings)
+		len(r.RetryableRuns), len(r.Sagas), len(r.UnownedWorktrees), primaryFindings)
 }
 
 // worktreeStateLabel renders one worktree's checkout state: the short
